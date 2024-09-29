@@ -153,18 +153,20 @@ def divide_scalar(a, scalar):
 
 class Transpose(TensorOp):
     def __init__(self, axes: Optional[tuple] = None):
+        if isinstance(axes, int):
+            axes = (axes, )
         self.axes = axes
 
     def compute(self, a):
         ### BEGIN YOUR SOLUTION
+        shape = list(range(len(a.shape)))
         if self.axes:
             x, y = self.axes[0], self.axes[1]
         else:
             x, y = -1, -2
-        ls = list(a.shape)
-        ls[x], ls[y] = ls[y], ls[x]
-        t = tuple(ls)
-        return NDArray.reshape(a, t)
+        shape[x], shape[y] = shape[y], shape[x]
+        
+        return NDArray.permute(a, tuple(shape))
         ### END YOUR SOLUTION
 
     def gradient(self, out_grad, node):
@@ -401,7 +403,14 @@ def exp(a):
 class ReLU(TensorOp):
     def compute(self, a):
         ### BEGIN YOUR SOLUTION
-        return NDArray.max(a, 0)
+        x = NDArray(0, device = a.device)
+        n = len(a.shape)
+        ls = []
+        for i in range(n):
+            ls.append(1)
+        x = NDArray.reshape(x, tuple(ls))
+        x = NDArray.broadcast_to(x, a.shape)
+        return NDArray.maximum(a, x)
         raise NotImplementedError()
         ### END YOUR SOLUTION
 
