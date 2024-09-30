@@ -1,6 +1,6 @@
 import numpy as np
 from ..autograd import Tensor
-
+import random
 from typing import Iterator, Optional, List, Sized, Union, Iterable, Any
 
 
@@ -60,12 +60,30 @@ class DataLoader:
 
     def __iter__(self):
         ### BEGIN YOUR SOLUTION
-        raise NotImplementedError()
+        self.index = 0
+        length = len(self.dataset)
+        size = self.batch_size
+        
+        temp = []
+        if(self.shuffle):
+            list_to_end = np.arange(length)
+            np.random.shuffle(list_to_end)
+            self.ordering = np.array_split(list_to_end, range(size, length, size))
+        #raise NotImplementedError()
         ### END YOUR SOLUTION
         return self
 
     def __next__(self):
+        if(self.index == len(self.ordering)):
+
+
+            raise StopIteration
+        res = [Tensor(x) for x in self.dataset[self.ordering[self.index]]]
+        self.index += 1
+        
+        return tuple(res)
         ### BEGIN YOUR SOLUTION
+
         raise NotImplementedError()
         ### END YOUR SOLUTION
 

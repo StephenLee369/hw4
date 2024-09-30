@@ -20,8 +20,13 @@ class RandomFlipHorizontal(Transform):
         """
         flip_img = np.random.rand() < self.p
         ### BEGIN YOUR SOLUTION
+        if flip_img:
+            return np.fliplr(img)
+        else:
+            return img
         raise NotImplementedError()
         ### END YOUR SOLUTION
+
 
 
 class RandomCrop(Transform):
@@ -29,14 +34,32 @@ class RandomCrop(Transform):
         self.padding = padding
 
     def __call__(self, img):
-        """ Zero pad and then randomly crop an image.
+        """ 
+        Zero pad and then randomly crop an image.
+        
         Args:
-             img: H x W x C NDArray of an image
-        Return 
-            H x W x C NAArray of cliped image
+            img: H x W x C NDArray of an image
+        
+        Returns:
+            H x W x C NDArray of clipped image
+        
         Note: generate the image shifted by shift_x, shift_y specified below
         """
+        # Extract image dimensions
+        H, W, C = img.shape
+        
+        # Pad the image with zeros on all sides
+        padded_img = np.pad(img, ((self.padding, self.padding), (self.padding, self.padding), (0, 0)), mode='constant')
+        
+        # Generate random shifts within the range of -padding to +padding
         shift_x, shift_y = np.random.randint(low=-self.padding, high=self.padding+1, size=2)
-        ### BEGIN YOUR SOLUTION
-        raise NotImplementedError()
-        ### END YOUR SOLUTION
+        
+        # Calculate the starting coordinates for the crop
+        start_x = self.padding + shift_x
+        start_y = self.padding + shift_y
+        
+        # Crop the image back to the original size
+        cropped_img = padded_img[start_x:start_x+H, start_y:start_y+W, :]
+        
+        return cropped_img
+
