@@ -6,6 +6,8 @@ from typing import Optional, List, Tuple, Union
 from ..autograd import NDArray
 from ..autograd import Op, Tensor, Value, TensorOp
 from ..autograd import TensorTuple, TensorTupleOp
+from .ops_tuple import make_tuple
+from ..backend_ndarray.ndarray import empty
 import numpy
 
 # NOTE: we will import numpy as the array_api
@@ -460,3 +462,122 @@ class LogSumExp(TensorOp):
         ### END YOUR SOLUTION
 def logSumExp(a, axes):
     return LogSumExp(axes)(a)
+class Tanh(TensorOp):
+    def compute(self, a):
+        ### BEGIN YOUR SOLUTION
+        return NDArray.tanh(a)
+        raise NotImplementedError
+        ### END YOUR SOLUTION
+
+    def gradient(self, out_grad, node):
+        ### BEGIN YOUR SOLUTION
+        input, = node.inputs
+        tmp = tanh(input)
+        return out_grad * (1 - tmp * tmp)
+        raise NotImplementedError()
+        ### END YOUR SOLUTION
+
+
+def tanh(a):
+    return Tanh()(a)
+
+
+def getitem(x, axises):
+    for axis in axises:
+        x = make_tuple(x)[axis]
+        
+    return x
+
+class Stack(TensorOp):
+    def __init__(self, axis: int):
+        """
+        Concatenates a sequence of arrays along a new dimension.
+        Parameters:
+        axis - dimension to concatenate along
+        All arrays need to be of the same size.
+        """
+        self.axis = axis
+
+    def compute(self, args):
+        ### BEGIN YOUR SOLUTION
+        n = len(args)
+        shape = list(args[0].shape)
+        arg_shape = list(args[0].shape)
+        shape.insert(self.axis, n)
+        x = NDArray(0,device=args[0].device)
+        n = len(shape)
+        ls = []
+        for i in range(n):
+            ls.append(1)
+        x = NDArray.reshape(x, tuple(ls))
+        x = NDArray.broadcast_to(x, shape)
+        new_arr = x
+        #new_arr = empty(shape=shape, dtype=args[0].dtype)
+        # 计算index
+        # 计算index
+        idxes = []
+        m = len(arg_shape)
+        for i in range(m):
+            idxes.append(slice(0, arg_shape[i]))
+        idxes.insert(self.axis, 0)
+        # 新形状
+        arg_shape.insert(self.axis, 1)
+        
+        # 赋值
+        for i in range(len(args)):
+            idxes[self.axis] = i
+            new_arr[tuple(idxes)] = args[i]
+        
+        return new_arr
+        ### END YOUR SOLUTION
+
+    def gradient(self, out_grad, node):
+        return split(out_grad, self.axis)
+
+def stack(args, axis):
+    return Stack(axis)(make_tuple(*args))
+    
+
+class Split(TensorTupleOp):
+    def __init__(self, axis: int):
+        """
+        Splits a tensor along an axis into a tuple of tensors.
+        (The "inverse" of Stack)
+        Parameters:
+        axis - dimension to split
+        """
+        self.axis = axis
+
+    def compute(self, A):
+        ### BEGIN YOUR SOLUTION
+        # (5, 3, 5) -> [(5, 5), (5, 5), (5, 5)]
+        n = A.shape[self.axis]
+        arg_shape = list(A.shape)
+        new_arr = []
+        # 计算index
+        idxes = []
+        m = len(arg_shape)
+        for i in range(m):
+            idxes.append(slice(0, arg_shape[i]))
+        # 新形状
+        new_shape = list(A.shape)
+        del new_shape[self.axis]
+
+        # 赋值
+        for i in range(n):
+            idxes[self.axis] = i
+            data = array_api.array(A[tuple(idxes)], dtype=A.dtype, device=A.device)
+            data = array_api.reshape(data, new_shape)
+            new_arr.append(data)
+
+        return new_arr
+        ### END YOUR SOLUTION
+
+    def gradient(self, out_grad, node):
+        ### BEGIN YOUR SOLUTION
+        return stack(out_grad, self.axis)
+        ### END YOUR SOLUTION
+
+
+def split(a, axis):
+    return Split(axis)(a)
