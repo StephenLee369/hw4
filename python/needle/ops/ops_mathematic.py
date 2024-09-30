@@ -582,3 +582,20 @@ class Split(TensorTupleOp):
 
 def split(a, axis):
     return Split(axis)(a)
+class Flip(TensorOp):
+    def __init__(self, axes: Optional[tuple] = None):
+        self.axes = axes
+
+    def compute(self, a):
+        ### BEGIN YOUR SOLUTION
+        return NDArray.flip(a, self.axes)
+        ### END YOUR SOLUTION
+
+    def gradient(self, out_grad, node):
+        ### BEGIN YOUR SOLUTION
+        return flip(out_grad, self.axes)
+        ### END YOUR SOLUTION
+
+
+def flip(a, axes):
+    return Flip(axes)(a)
