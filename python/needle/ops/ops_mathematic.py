@@ -473,7 +473,8 @@ class Tanh(TensorOp):
         ### BEGIN YOUR SOLUTION
         input, = node.inputs
         tmp = tanh(input)
-        return out_grad * (1 - tmp * tmp)
+        pingfang = multiply(tmp, tmp)
+        return multiply(out_grad , (1 - pingfang))
         raise NotImplementedError()
         ### END YOUR SOLUTION
 
@@ -512,7 +513,7 @@ class Stack(TensorOp):
         x = NDArray.reshape(x, tuple(ls))
         x = NDArray.broadcast_to(x, shape)
         new_arr = x
-        #new_arr = empty(shape=shape, dtype=args[0].dtype)
+        new_arr = empty(shape=shape, dtype=args[0].dtype, device=args[0].device)
         # 计算index
         # 计算index
         idxes = []
@@ -566,8 +567,8 @@ class Split(TensorTupleOp):
         # 赋值
         for i in range(n):
             idxes[self.axis] = i
-            data = array_api.array(A[tuple(idxes)], dtype=A.dtype, device=A.device)
-            data = array_api.reshape(data, new_shape)
+            data = NDArray(A[tuple(idxes)], device=A.device)
+            data = NDArray.reshape(data, new_shape)
             new_arr.append(data)
 
         return new_arr
