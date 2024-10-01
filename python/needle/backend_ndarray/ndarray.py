@@ -667,7 +667,28 @@ class NDArray:
         axes = ( (0, 0), (1, 1), (0, 0)) pads the middle axis with a 0 on the left and right side.
         """
         ### BEGIN YOUR SOLUTION
-        raise NotImplementedError()
+        temp = []
+        for i in range(len(axes)):
+            num = 0
+            for j in axes[i]:
+                num += j
+            temp.append(num)
+        ls_shape = list(self.shape)
+        for i in range(len(ls_shape)):
+            ls_shape[i] += temp[i]
+        tp_shape = tuple(ls_shape)
+        arr = self.device.full(tp_shape, 0, self.dtype)
+        offset = 0
+        for i in range(len(ls_shape)):
+            offset += int(arr.strides[i] * axes[i][0])
+        return(self.device.ewise_setitem(
+        self._handle,
+        arr._handle,
+        self._shape,
+        arr._strides,
+        offset,
+        ))
+
         ### END YOUR SOLUTION
 
 def array(a, dtype="float32", device=None):
