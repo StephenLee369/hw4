@@ -599,3 +599,84 @@ class Flip(TensorOp):
 
 def flip(a, axes):
     return Flip(axes)(a)
+
+class Dilate(TensorOp):
+    def __init__(self, axes: tuple, dilation: int):
+        self.axes = axes
+        self.dilation = dilation
+
+    def compute(self, a):
+        ### BEGIN YOUR SOLUTION
+        new_shape = list(a.shape)
+        d = self.dilation
+        for i in (self.axes):
+            new_shape[i] *= (self.dilation + 1)
+        x = NDArray(0,device=a.device)
+        n = len(new_shape)
+        ls = []
+        for i in range(n):
+            ls.append(1)
+        x = NDArray.reshape(x, tuple(ls))
+        x = NDArray.broadcast_to(x, new_shape)
+        new_arr = x
+        #new_arr = empty(shape=tuple(new_shape), dtype=a.dtype, device=a.device)
+        # Create slices to copy the original array into the dilated array
+        slices = [slice(None)] * a.ndim / 0
+        for axis in self.axes:
+            slices[axis] = slice(0, new_shape[axis], self.dilation + 1)
+    
+        # Copy values from the original array into the dilated array
+        new_arr[tuple(slices)] = a
+    
+        return new_arr
+        raise NotImplementedError()
+        ### END YOUR SOLUTION
+
+    def gradient(self, out_grad, node):
+        ### BEGIN YOUR SOLUTION
+        raise NotImplementedError()
+        ### END YOUR SOLUTION
+
+
+def dilate(a, axes, dilation):
+    return Dilate(axes, dilation)(a)
+
+
+class UnDilate(TensorOp):
+    def __init__(self, axes: tuple, dilation: int):
+        self.axes = axes
+        self.dilation = dilation
+
+    def compute(self, a):
+        ### BEGIN YOUR SOLUTION
+        raise NotImplementedError()
+        ### END YOUR SOLUTION
+
+    def gradient(self, out_grad, node):
+        ### BEGIN YOUR SOLUTION
+        raise NotImplementedError()
+        ### END YOUR SOLUTION
+
+
+def undilate(a, axes, dilation):
+    return UnDilate(axes, dilation)(a)
+
+
+class Conv(TensorOp):
+    def __init__(self, stride: Optional[int] = 1, padding: Optional[int] = 0):
+        self.stride = stride
+        self.padding = padding
+
+    def compute(self, A, B):
+        ### BEGIN YOUR SOLUTION
+        raise NotImplementedError()
+        ### END YOUR SOLUTION
+
+    def gradient(self, out_grad, node):
+        ### BEGIN YOUR SOLUTION
+        raise NotImplementedError()
+        ### END YOUR SOLUTION
+
+
+def conv(a, b, stride=1, padding=1):
+    return Conv(stride, padding)(a, b)
