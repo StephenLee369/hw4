@@ -7,7 +7,7 @@ from ..autograd import NDArray
 from ..autograd import Op, Tensor, Value, TensorOp
 from ..autograd import TensorTuple, TensorTupleOp
 from .ops_tuple import make_tuple
-from ..backend_ndarray.ndarray import empty
+from ..backend_ndarray.ndarray import empty, full
 import numpy
 
 # NOTE: we will import numpy as the array_api
@@ -607,33 +607,27 @@ class Dilate(TensorOp):
 
     def compute(self, a):
         ### BEGIN YOUR SOLUTION
-        new_shape = list(a.shape)
-        d = self.dilation
-        for i in (self.axes):
-            new_shape[i] *= (self.dilation + 1)
-        x = NDArray(0,device=a.device)
-        n = len(new_shape)
-        ls = []
+        old_shape = list(a.shape)
+        new_shape = []
+        n = len(old_shape)
+        index = []
         for i in range(n):
-            ls.append(1)
-        x = NDArray.reshape(x, tuple(ls))
-        x = NDArray.broadcast_to(x, new_shape)
-        new_arr = x
-        #new_arr = empty(shape=tuple(new_shape), dtype=a.dtype, device=a.device)
-        # Create slices to copy the original array into the dilated array
-        slices = [slice(None)] * a.ndim / 0
-        for axis in self.axes:
-            slices[axis] = slice(0, new_shape[axis], self.dilation + 1)
-    
-        # Copy values from the original array into the dilated array
-        new_arr[tuple(slices)] = a
-    
-        return new_arr
-        raise NotImplementedError()
+            if i not in self.axes:
+                new_shape.append(old_shape[i])
+                index.append(slice(new_shape[-1]))
+            else:
+                new_shape.append(old_shape[i] * (1 + self.dilation))
+                index.append(slice(0, new_shape[-1], 1 + self.dilation))
+                
+        res = full(new_shape, 0, dtype=a.dtype, device=a.device)
+        res[tuple(index)] = a
+        
+        return res
         ### END YOUR SOLUTION
 
     def gradient(self, out_grad, node):
         ### BEGIN YOUR SOLUTION
+        return undilate(out_grad, self.axes, self.dilation)
         raise NotImplementedError()
         ### END YOUR SOLUTION
 
@@ -649,11 +643,25 @@ class UnDilate(TensorOp):
 
     def compute(self, a):
         ### BEGIN YOUR SOLUTION
+        n = len(a.shape)
+        new_ls = []
+        index = []
+        for i in range(n):
+            if(i not in self.axes):
+                new_ls.append(a.shape[i])
+                index.append(slice(a.shape[i]))
+            else:
+                new_ls.append(a.shape[i] // (self.dilation + 1))
+                index.append(slice(0, a.shape[i], (1 + self.dilation)))
+        res = full(tuple(new_ls), 0, dtype=a.dtype, device=a.device)
+        res = a[tuple(index)]
+        return res
         raise NotImplementedError()
         ### END YOUR SOLUTION
 
     def gradient(self, out_grad, node):
         ### BEGIN YOUR SOLUTION
+        return dilate(out_grad, self.axes, self.dilation)
         raise NotImplementedError()
         ### END YOUR SOLUTION
 
