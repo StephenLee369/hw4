@@ -676,9 +676,45 @@ class Conv(TensorOp):
         self.padding = padding
 
     def compute(self, A, B):
-        ### BEGIN YOUR SOLUTION
-        raise NotImplementedError()
-        ### END YOUR SOLUTION
+    ### BEGIN YOUR SOLUTION
+        axes = ((0, 0), (self.padding, self.padding), (self.padding, self.padding), (0, 0))
+        A_pad = NDArray.pad(A, axes)
+        N, H, W, C_in = A_pad.shape
+        K, _, _, C_out = B.shape
+        H_out = (H - K) // self.stride + 1
+        W_out = (W - K) // self.stride + 1
+        out = full(
+            shape=(N, H_out, W_out, C_out),
+            fill_value=0, 
+            dtype=A.dtype, 
+            device=A.device
+        )
+        # for i in range(K):
+        #     for j in range(K):
+        #         out += Z[:,i:i+H-K+1,j:j+W-K+1,:] @ weight[i,j]
+        batch_index = slice(N)
+        feature_index1 = slice(C_in)
+        feature_index2 = slice(C_out)
+        n = N * H_out * W_out
+        for i in range(K):
+            for j in range(K):
+                # 不要和dilate搞混
+                i_start = i
+                i_end = i_start + H_out * self.stride
+                h_index = slice(i_start, i_end, self.stride)
+                j_start = j
+                j_end = j_start + W_out * self.stride
+                w_index = slice(j_start, j_end, self.stride)
+                A1 = A_pad[(batch_index, h_index, w_index, feature_index1)]
+                A2 = NDArray.reshape(A1, (n, C_in))
+                B1 = B[slice(i, i + 1, 1), slice(j, j + 1, 1), feature_index1, feature_index2]
+                B2 = NDArray.reshape(B1, (C_in, C_out))
+                C2 = NDArray.__matmul__(A2, B2)
+                C3 = NDArray.reshape(C2, (N, H_out, W_out, C_out))
+                out += C3
+
+        return out
+    ### END YOUR SOLUTION
 
     def gradient(self, out_grad, node):
         ### BEGIN YOUR SOLUTION
