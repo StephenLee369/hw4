@@ -10,10 +10,10 @@ from .ops_tuple import make_tuple
 from ..backend_ndarray.ndarray import empty, full
 import numpy
 
-# NOTE: we will import numpy as the array_api
+# NOTE: we will import numpy as the NDArray
 # as the backend for our computations, this line will change in later homeworks
 
-import numpy as array_api
+#import numpy as NDArray
 
 
 class EWiseAdd(TensorOp):
@@ -676,7 +676,7 @@ class Conv(TensorOp):
         self.padding = padding
 
     def compute(self, A, B):
-    ### BEGIN YOUR SOLUTION
+        ### BEGIN YOUR SOLUTION
         axes = ((0, 0), (self.padding, self.padding), (self.padding, self.padding), (0, 0))
         A_pad = NDArray.pad(A, axes)
         N, H, W, C_in = A_pad.shape
@@ -706,21 +706,70 @@ class Conv(TensorOp):
                 j_end = j_start + W_out * self.stride
                 w_index = slice(j_start, j_end, self.stride)
                 A1 = A_pad[(batch_index, h_index, w_index, feature_index1)]
+                A1 = A1.compact()
                 A2 = NDArray.reshape(A1, (n, C_in))
                 B1 = B[slice(i, i + 1, 1), slice(j, j + 1, 1), feature_index1, feature_index2]
+                B1 = B1.compact()
                 B2 = NDArray.reshape(B1, (C_in, C_out))
                 C2 = NDArray.__matmul__(A2, B2)
                 C3 = NDArray.reshape(C2, (N, H_out, W_out, C_out))
                 out += C3
 
         return out
-    ### END YOUR SOLUTION
+        ### END YOUR SOLUTION
+
 
     def gradient(self, out_grad, node):
-        ### BEGIN YOUR SOLUTION
-        raise NotImplementedError()
-        ### END YOUR SOLUTION
+        A, B = node.inputs
+        N, H, W, C_in = A.shape
+        kH, kW, _, C_out = B.shape
+
+        # Pad A
+        pad_h = self.padding
+        pad_w = self.padding
+        if self.padding > 0:
+            A_padded = A.pad(((0, 0), (pad_h, pad_h), (pad_w, pad_w), (0, 0)))
+        else:
+            A_padded = A
+
+        N, H_padded, W_padded, C_in = A_padded.shape
+
+        # Compute output dimensions
+        H_out = (H_padded - kH) // self.stride + 1
+        W_out = (W_padded - kW) // self.stride + 1
+
+        # Initialize gradient tensors for A and B
+        grad_A_padded = full_like(A_padded, 0)
+        grad_B = full_like(B, 0)
+
+        # Compute gradients
+        for n in range(N):
+            for h_out in range(H_out):
+                for w_out in range(W_out):
+                    h_start = h_out * self.stride
+                    h_end = h_start + kH
+                    w_start = w_out * self.stride
+                    w_end = w_start + kW
+
+                    # Get the patch from the padded input
+                    patch = A_padded[n, h_start:h_end, w_start:w_end, :]
+
+                    for c_out in range(C_out):
+                        # Gradient w.r.t. A
+                        grad_A_padded[n, h_start:h_end, w_start:w_end, :] += out_grad[n, h_out, w_out, c_out] * B[:, :, :, c_out]
+
+                        # Gradient w.r.t. B
+                        grad_B[:, :, :, c_out] += out_grad[n, h_out, w_out, c_out] * patch
+
+        # Remove padding from grad_A_padded to get gradient w.r.t. A
+        if self.padding > 0:
+            grad_A = grad_A_padded[:, self.padding:-self.padding, self.padding:-self.padding, :]
+        else:
+            grad_A = grad_A_padded
+
+        return grad_A, grad_B
 
 
 def conv(a, b, stride=1, padding=1):
     return Conv(stride, padding)(a, b)
+

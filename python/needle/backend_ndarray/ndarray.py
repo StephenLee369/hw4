@@ -245,21 +245,23 @@ class NDArray:
         Returns:
             NDArray : reshaped array; this will point to thep
         """
-        b = 1
-        c = 1
-        for i in range(len(new_shape)):
-            c *= new_shape[i]
-        for i in range(len(self.shape)):
-            b *= self.shape[i]
-        if(b != c):
+        
+        
+        ### BEGIN YOUR SOLUTION
+        origin_size = self.size
+        new_size = prod(new_shape)
+        if origin_size != new_size:
             raise ValueError
         new_strides = self.compact_strides(new_shape)
+    
         return NDArray.make(
-            new_shape, strides=new_strides, device=self.device, handle=self._handle
+            shape=new_shape, 
+            strides=new_strides, 
+            device=self._device, 
+            handle=self._handle,
+            offset=self._offset,
         )
-        ### BEGIN YOUR SOLUTION
-        raise NotImplementedError()
-        ### END YOUR SOLUTION
+    ### END YOUR SOLUTION
 
     def permute(self, new_axes):
         """
