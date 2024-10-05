@@ -674,98 +674,93 @@ class Conv(TensorOp):
     def __init__(self, stride: Optional[int] = 1, padding: Optional[int] = 0):
         self.stride = stride
         self.padding = padding
+    def uniform_shape(self, A: NDArray) -> NDArray: # type: ignore
+        if A.ndim == 4:
+            return A
+        else:
+            new_shape = (1,) * (4 - A.ndim) + A.shape
+            return NDArray.broadcast_to(A, new_shape)
+    def compute(self, A: NDArray, B: NDArray) -> NDArray: # type: ignore
+        '''
+        A: activation (N, H, W, c_in)
+        B: kernel weight (k_h, k_w, c_in, c_out)
+        '''
+        #assert BACKEND == "nd", f"Conv op only support ndl.NDArray, but got BACKEND: {BACKEND}"
+        A = self.uniform_shape(A).compact()
+        B = self.uniform_shape(B).compact()
+        N = A.shape[0]
+        in_h, in_w = A.shape[1] + 2*self.padding, A.shape[2] + 2*self.padding
+        c_in, c_out = A.shape[-1], B.shape[-1]
+        k_h, k_w = B.shape[0], B.shape[1]
 
-    def compute(self, A, B):
-        ### BEGIN YOUR SOLUTION
-        axes = ((0, 0), (self.padding, self.padding), (self.padding, self.padding), (0, 0))
-        A_pad = NDArray.pad(A, axes)
-        N, H, W, C_in = A_pad.shape
-        K, _, _, C_out = B.shape
-        H_out = (H - K) // self.stride + 1
-        W_out = (W - K) // self.stride + 1
-        out = full(
-            shape=(N, H_out, W_out, C_out),
-            fill_value=0, 
-            dtype=A.dtype, 
-            device=A.device
-        )
-        # for i in range(K):
-        #     for j in range(K):
-        #         out += Z[:,i:i+H-K+1,j:j+W-K+1,:] @ weight[i,j]
-        batch_index = slice(N)
-        feature_index1 = slice(C_in)
-        feature_index2 = slice(C_out)
-        n = N * H_out * W_out
-        for i in range(K):
-            for j in range(K):
-                # 不要和dilate搞混
-                i_start = i
-                i_end = i_start + H_out * self.stride
-                h_index = slice(i_start, i_end, self.stride)
-                j_start = j
-                j_end = j_start + W_out * self.stride
-                w_index = slice(j_start, j_end, self.stride)
-                A1 = A_pad[(batch_index, h_index, w_index, feature_index1)]
-                A1 = A1.compact()
-                A2 = NDArray.reshape(A1, (n, C_in))
-                B1 = B[slice(i, i + 1, 1), slice(j, j + 1, 1), feature_index1, feature_index2]
-                B1 = B1.compact()
-                B2 = NDArray.reshape(B1, (C_in, C_out))
-                C2 = NDArray.__matmul__(A2, B2)
-                C3 = NDArray.reshape(C2, (N, H_out, W_out, C_out))
-                out += C3
+        uniformed_A = NDArray.pad(A, ((0, 0), (self.padding, self.padding), (self.padding, self.padding), (0, 0)))
+        uniformed_A = uniformed_A[:, :in_h-(in_h-k_h)%self.stride, :in_w-(in_w-k_w)%self.stride, :].compact()
+        uniformed_B = B
+        in_h, in_w = uniformed_A.shape[1], uniformed_A.shape[2]
+        out_h, out_w = (in_h-k_h)//self.stride + 1, (in_w-k_w)//self.stride + 1
+        assert((in_h - k_h) % self.stride == 0 and 
+               (in_w - k_w) % self.stride == 0), \
+               f"Error in conv compute: {A.shape}, B.shape: {B.shape}, stride: {self.stride}, padding: {self.padding}"
 
+        out_shape      = (N, out_h, out_w, c_out)
+        im2col_shape   = (N, out_h, out_w, c_in, k_h, k_w)
+        im2col_strides = (in_w * in_h * c_in, self.stride * in_w * c_in, self.stride * c_in, 1, in_w * c_in, c_in)
+
+        W = NDArray.permute(uniformed_B, (2, 0, 1, 3)).compact()
+        # W = array_api.reshape(W, (W.shape[0]*W.shape[1]*W.shape[2], W.shape[3])).compact()
+        assert W.shape[0]*W.shape[1]*W.shape[2]*W.shape[3] == (c_in * k_h * k_w * c_out), \
+            f"Some error in shape of W.shape: {W.shape}, uniformed_B.shape: {uniformed_B.shape}, c_in: {c_in}, k_h: {k_h}, k_w: {k_w}, c_out: {c_out}"
+        W = NDArray.reshape(W, (c_in * k_h * k_w, c_out)).compact()
+        # im2col = array_api.make(
+        im2col = NDArray.make(
+            shape=im2col_shape,
+            strides=im2col_strides,
+            device=uniformed_A.device,
+            handle=uniformed_A._handle,
+            offset=0
+        ).compact().reshape(
+            (N * out_h * out_w, c_in * k_h * k_w)
+        ).compact()
+        out = (im2col @ W).reshape(out_shape).compact()
         return out
-        ### END YOUR SOLUTION
 
 
     def gradient(self, out_grad, node):
-        A, B = node.inputs
-        N, H, W, C_in = A.shape
-        kH, kW, _, C_out = B.shape
+        A = self.uniform_shape(A).compact()
+        B = self.uniform_shape(B).compact()
+        N = A.shape[0]
+        in_h, in_w = A.shape[1] + 2*self.padding, A.shape[2] + 2*self.padding
+        c_in, c_out = A.shape[-1], B.shape[-1]
+        k_h, k_w = B.shape[0], B.shape[1]
 
-        # Pad A
-        pad_h = self.padding
-        pad_w = self.padding
-        if self.padding > 0:
-            A_padded = A.pad(((0, 0), (pad_h, pad_h), (pad_w, pad_w), (0, 0)))
-        else:
-            A_padded = A
+        uniformed_A = NDArray.pad(A, ((0, 0), (self.padding, self.padding), (self.padding, self.padding), (0, 0)))
+        uniformed_A = uniformed_A[:, :in_h-(in_h-k_h)%self.stride, :in_w-(in_w-k_w)%self.stride, :].compact()
+        uniformed_B = B
+        in_h, in_w = uniformed_A.shape[1], uniformed_A.shape[2]
+        out_h, out_w = (in_h-k_h)//self.stride + 1, (in_w-k_w)//self.stride + 1
+        assert((in_h - k_h) % self.stride == 0 and 
+               (in_w - k_w) % self.stride == 0), \
+               f"Error in conv compute: {A.shape}, B.shape: {B.shape}, stride: {self.stride}, padding: {self.padding}"
 
-        N, H_padded, W_padded, C_in = A_padded.shape
+        out_shape      = (N, out_h, out_w, c_out)
+        im2col_shape   = (N, out_h, out_w, c_in, k_h, k_w)
+        im2col_strides = (in_w * in_h * c_in, self.stride * in_w * c_in, self.stride * c_in, 1, in_w * c_in, c_in)
 
-        # Compute output dimensions
-        H_out = (H_padded - kH) // self.stride + 1
-        W_out = (W_padded - kW) // self.stride + 1
-
-        # Initialize gradient tensors for A and B
-        grad_A_padded = full_like(A_padded, 0)
-        grad_B = full_like(B, 0)
-
-        # Compute gradients
-        for n in range(N):
-            for h_out in range(H_out):
-                for w_out in range(W_out):
-                    h_start = h_out * self.stride
-                    h_end = h_start + kH
-                    w_start = w_out * self.stride
-                    w_end = w_start + kW
-
-                    # Get the patch from the padded input
-                    patch = A_padded[n, h_start:h_end, w_start:w_end, :]
-
-                    for c_out in range(C_out):
-                        # Gradient w.r.t. A
-                        grad_A_padded[n, h_start:h_end, w_start:w_end, :] += out_grad[n, h_out, w_out, c_out] * B[:, :, :, c_out]
-
-                        # Gradient w.r.t. B
-                        grad_B[:, :, :, c_out] += out_grad[n, h_out, w_out, c_out] * patch
-
-        # Remove padding from grad_A_padded to get gradient w.r.t. A
-        if self.padding > 0:
-            grad_A = grad_A_padded[:, self.padding:-self.padding, self.padding:-self.padding, :]
-        else:
-            grad_A = grad_A_padded
+        W = NDArray.permute(uniformed_B, (2, 0, 1, 3)).compact()
+        # W = array_api.reshape(W, (W.shape[0]*W.shape[1]*W.shape[2], W.shape[3])).compact()
+        assert W.shape[0]*W.shape[1]*W.shape[2]*W.shape[3] == (c_in * k_h * k_w * c_out), \
+            f"Some error in shape of W.shape: {W.shape}, uniformed_B.shape: {uniformed_B.shape}, c_in: {c_in}, k_h: {k_h}, k_w: {k_w}, c_out: {c_out}"
+        W = NDArray.reshape(W, (c_in * k_h * k_w, c_out)).compact()
+        # im2col = array_api.make(
+        im2col = NDArray.make(
+            shape=im2col_shape,
+            strides=im2col_strides,
+            device=uniformed_A.device,
+            handle=uniformed_A._handle,
+            offset=0
+        ).compact().reshape(
+            (N * out_h * out_w, c_in * k_h * k_w)
+        ).compact()
 
         return grad_A, grad_B
 
@@ -773,3 +768,60 @@ class Conv(TensorOp):
 def conv(a, b, stride=1, padding=1):
     return Conv(stride, padding)(a, b)
 
+
+
+class Conv2(TensorOp):
+    def __init__(self, stride: Optional[int] = 1, padding: Optional[int] = 0):
+        self.stride = stride
+        self.padding = padding
+    
+    def uniform_shape(self, A: NDArray) -> NDArray: # type: ignore
+        if A.ndim == 4:
+            return A
+        else:
+            new_shape = (1,) * (4 - A.ndim) + A.shape
+            return NDArray.broadcast_to(A, new_shape)
+
+    def compute(self, A: NDArray, B: NDArray) -> NDArray: # type: ignore
+        '''
+        A: activation (N, H, W, c_in)
+        B: kernel weight (k_h, k_w, c_in, c_out)
+        '''
+        #assert BACKEND == "nd", f"Conv op only support ndl.NDArray, but got BACKEND: {BACKEND}"
+        A = self.uniform_shape(A).compact()
+        B = self.uniform_shape(B).compact()
+        N = A.shape[0]
+        in_h, in_w = A.shape[1] + 2*self.padding, A.shape[2] + 2*self.padding
+        c_in, c_out = A.shape[-1], B.shape[-1]
+        k_h, k_w = B.shape[0], B.shape[1]
+
+        uniformed_A = NDArray.pad(A, ((0, 0), (self.padding, self.padding), (self.padding, self.padding), (0, 0)))
+        uniformed_A = uniformed_A[:, :in_h-(in_h-k_h)%self.stride, :in_w-(in_w-k_w)%self.stride, :].compact()
+        uniformed_B = B
+        in_h, in_w = uniformed_A.shape[1], uniformed_A.shape[2]
+        out_h, out_w = (in_h-k_h)//self.stride + 1, (in_w-k_w)//self.stride + 1
+        assert((in_h - k_h) % self.stride == 0 and 
+               (in_w - k_w) % self.stride == 0), \
+               f"Error in conv compute: {A.shape}, B.shape: {B.shape}, stride: {self.stride}, padding: {self.padding}"
+
+        out_shape      = (N, out_h, out_w, c_out)
+        im2col_shape   = (N, out_h, out_w, c_in, k_h, k_w)
+        im2col_strides = (in_w * in_h * c_in, self.stride * in_w * c_in, self.stride * c_in, 1, in_w * c_in, c_in)
+
+        W = NDArray.transpose(uniformed_B, (2, 0, 1, 3)).compact()
+        # W = array_api.reshape(W, (W.shape[0]*W.shape[1]*W.shape[2], W.shape[3])).compact()
+        assert W.shape[0]*W.shape[1]*W.shape[2]*W.shape[3] == (c_in * k_h * k_w * c_out), \
+            f"Some error in shape of W.shape: {W.shape}, uniformed_B.shape: {uniformed_B.shape}, c_in: {c_in}, k_h: {k_h}, k_w: {k_w}, c_out: {c_out}"
+        W = NDArray.reshape(W, (c_in * k_h * k_w, c_out)).compact()
+        # im2col = array_api.make(
+        im2col = NDArray.make(
+            shape=im2col_shape,
+            strides=im2col_strides,
+            device=uniformed_A.device,
+            handle=uniformed_A._handle,
+            offset=0
+        ).compact().reshape(
+            (N * out_h * out_w, c_in * k_h * k_w)
+        ).compact()
+        out = (im2col @ W).reshape(out_shape).compact()
+        return out
