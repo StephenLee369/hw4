@@ -449,7 +449,7 @@ def test_op_conv(Z_shape, W_shape, stride, padding, backward, device):
         assert err2 < 1e-2, "weight grads match"
     assert err3 < 1e-1, "outputs match %s, %s" % (y2, out2)
 
-test_op_conv( (1, 4, 4, 1), (3, 3, 1, 1),  1, 1, False, ndl.cpu())
+test_op_conv( (1, 6, 6, 1), (3, 3, 1, 1),  2, 1, True, ndl.cpu())
 @pytest.mark.parametrize("device", _DEVICES)
 def test_train_cifar10(device):
     np.random.seed(0)

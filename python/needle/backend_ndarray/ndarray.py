@@ -523,7 +523,7 @@ class NDArray:
         the GPU version will just work natively by tiling any input size).
         """
 
-        assert self.ndim == 2 and other.ndim == 2
+        #assert self.ndim == 2 and other.ndim == 2
         assert self.shape[1] == other.shape[0]
 
         m, n, p = self.shape[0], self.shape[1], other.shape[1]
@@ -669,7 +669,7 @@ class NDArray:
         axes = ( (0, 0), (1, 1), (0, 0)) pads the middle axis with a 0 on the left and right side.
         """
         ### BEGIN YOUR SOLUTION
-        old_shape = self._shape
+        old_shape = self.shape
         n = len(axes)
         new_shape = []
         idxs = []

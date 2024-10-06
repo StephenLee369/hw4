@@ -726,8 +726,14 @@ class Conv(TensorOp):
 
 
     def gradient(self, out_grad, node):
-        A = self.uniform_shape(A).compact()
-        B = self.uniform_shape(B).compact()
+        A, B = node.inputs
+        type = out_grad.dtype
+        device = out_grad.device
+        #A = self.uniform_shape(A).compact()
+        #B = self.uniform_shape(B).compact()
+        A = A.realize_cached_data()
+        B = B.realize_cached_data()
+        out_grad = out_grad.realize_cached_data()
         N = A.shape[0]
         in_h, in_w = A.shape[1] + 2*self.padding, A.shape[2] + 2*self.padding
         c_in, c_out = A.shape[-1], B.shape[-1]
@@ -761,8 +767,24 @@ class Conv(TensorOp):
         ).compact().reshape(
             (N * out_h * out_w, c_in * k_h * k_w)
         ).compact()
+        out_grad_B = out_grad.reshape((c_out, N * out_h * out_w))
 
-        return grad_A, grad_B
+        grad_B = (out_grad_B @ im2col).reshape((k_h, k_w, c_in, c_out))
+        B_shape_length = len(B.shape)
+        #B_axes = [i for i in range(B_shape_length)]
+        B_flip = NDArray.flip(B, axes = (0, 1))
+        B = NDArray.permute(B_flip, (0, 1, 3, 2))
+        out_grad_dilate = dilate(Tensor(out_grad), (1, 2), self.stride - 1)
+        h = A.shape[1]
+        k = B.shape[0]
+        tmp = ((h + 2 * self.padding - k) // self.stride + 1) * self.stride
+        # pad
+        p_B = (h + k - tmp - 1) // 2        
+        p_A = (k_h + tmp - in_h - 1) // 2
+        #out_grad_A = out_grad.reshape((N, out_h, out_w, c_out))
+
+        grad_A = conv(out_grad_dilate, Tensor(B), stride=1, padding=p_B)
+        return grad_A, Tensor(grad_B)
 
 
 def conv(a, b, stride=1, padding=1):
