@@ -27,11 +27,21 @@ class LogSumExp(TensorOp):
     def __init__(self, axes: Optional[tuple] = None):
         if isinstance(axes, int):
             axes = (axes,)
+        
         self.axes = axes
 
     def compute(self, Z):
         ### BEGIN YOUR SOLUTION
         # Calculate max along the axes without keepdims
+        
+        
+        axes_list = list(self.axes)
+        m = len(axes_list)
+        n = len(Z.shape)
+        for i in range(m):
+            if(axes_list[i] < 0):
+                axes_list[i] += n
+        self.axes = tuple(axes_list)
         z = NDArray.max(Z, axis=self.axes)
         z2 = z
         # Broadcast z to have the same shape as Z
@@ -71,7 +81,7 @@ class LogSumExp(TensorOp):
         ### BEGIN YOUR SOLUTION
         input, = node.inputs
         # Calculate max along the axes without keepdims
-        z = NDArray.max(input.numpy(), axis=self.axes)
+        z = NDArray.max(input.cached_data, axis=self.axes)
 
         # Broadcast z to have the same shape as input
         if self.axes:
@@ -81,7 +91,7 @@ class LogSumExp(TensorOp):
             z = z.reshape(z_shape)
             z = NDArray.broadcast_to(z, input.shape)
         
-        e = NDArray.exp(input.numpy() - z)
+        e = NDArray.exp(input.cached_data - z)
         e_sum = NDArray.sum(e, axis=self.axes)
 
         # Broadcast e_sum to have the same shape as input
@@ -106,7 +116,7 @@ class LogSumExp(TensorOp):
         # Broadcast grad to match input shape
         grad = broadcast_to(grad, input.shape)
         
-        return grad * Tensor(prob, dtype=grad.dtype)
+        return grad * Tensor(prob, device=grad.device,dtype=grad.dtype)
         ### END YOUR SOLUTION
 
 

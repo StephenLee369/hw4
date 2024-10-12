@@ -6,16 +6,39 @@ import math
 import numpy as np
 np.random.seed(0)
 
-
+def ConvBNBlock(a, b, k, s, device=None, dtype="float32"):
+    #a为输入通道，b为输出通道， k为kernel_size, s为stride
+    module = nn.Sequential(nn.Conv(a, b, k, s, device=device, dtype=dtype), 
+                           nn.BatchNorm2d(b, device=device, dtype=dtype),
+                           nn.ReLU())
+    return module
 class ResNet9(ndl.nn.Module):
     def __init__(self, device=None, dtype="float32"):
         super().__init__()
-        ### BEGIN YOUR SOLUTION ###
-        raise NotImplementedError() ###
-        ### END YOUR SOLUTION
-
+        self.ConvBN1 = ConvBNBlock(3, 16, 7, 4, device=device, dtype=dtype)
+        self.ConvBN2 = ConvBNBlock(16, 32, 3, 2, device=device, dtype=dtype)
+        self.ConvBN3 = nn.Residual(nn.Sequential(ConvBNBlock(32, 32, 3, 1, device=device, dtype=dtype)
+                                   , ConvBNBlock(32, 32, 3, 1, device=device, dtype=dtype)))
+        self.ConvBN4 = ConvBNBlock(32, 64, 3, 2, device=device, dtype=dtype)
+        self.ConvBN5 = ConvBNBlock(64, 128, 3, 2, device=device, dtype=dtype)
+        self.ConvBN6 = nn.Residual(nn.Sequential(ConvBNBlock(128, 128, 3, 1, device=device, dtype=dtype),
+                                   ConvBNBlock(128, 128, 3, 1, device=device, dtype=dtype)))
+        self.Linear0 = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(128, 128, device=device, dtype=dtype), 
+            nn.ReLU(), 
+            nn.Linear(128, 10, device=device, dtype=dtype)
+        )
     def forward(self, x):
         ### BEGIN YOUR SOLUTION
+        x = self.ConvBN1(x)
+        x = self.ConvBN2(x)
+        x = self.ConvBN3(x)
+        x = self.ConvBN4(x)
+        x = self.ConvBN5(x)
+        x = self.ConvBN6(x)
+        x = self.Linear0(x)
+        return x
         raise NotImplementedError()
         ### END YOUR SOLUTION
 

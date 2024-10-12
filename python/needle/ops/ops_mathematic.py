@@ -86,7 +86,7 @@ class PowerScalar(TensorOp):
         ### BEGIN YOUR SOLUTION
         input, = node.inputs
         # nx^(n-1)
-        return out_grad * (self.scalar * NDArray.__pow__(input, self.scalar - 1))
+        return out_grad * (self.scalar * NDArray.__pow__(input.cached_data, self.scalar - 1))
         ### END YOUR SOLUTION
 
 
@@ -420,7 +420,7 @@ class ReLU(TensorOp):
         ### BEGIN YOUR SOLUTION
         input, = node.inputs
         input_relu = relu(input).numpy()
-        return out_grad * Tensor(input_relu > 0, dtype=out_grad.dtype)
+        return out_grad * Tensor(input_relu > 0, device=out_grad.device, dtype=out_grad.dtype)
         raise NotImplementedError()
         ### END YOUR SOLUTION
 
