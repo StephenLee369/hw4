@@ -160,7 +160,11 @@ class NDArray:
     @property
     def device(self):
         return self._device
+    
 
+    def data_ptr(self):
+        return self._handle.ptr()
+    
     @property
     def dtype(self):
         # only support float32 for now

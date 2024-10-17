@@ -1,684 +1,375 @@
 import sys
 sys.path.append('./python')
+sys.path.append('./apps')
 import numpy as np
 import pytest
-from needle import backend_ndarray as nd
-import needle as ndl
-import mugrade
+import torch
 import itertools
+import mugrade
+
+import needle as ndl
+import needle.nn as nn
+
+from simple_ml import *
+from models import LanguageModel
+
+
+np.random.seed(3)
 
 
 _DEVICES = [ndl.cpu(), pytest.param(ndl.cuda(),
     marks=pytest.mark.skipif(not ndl.cuda().enabled(), reason="No GPU"))]
 
-def backward_check(f, *args, **kwargs):
-    eps = 1e-3
-    out = f(*args, **kwargs)
-    c = np.random.randn(*out.shape)
-    is_stacked = False
-    if isinstance(args[0], list):
-        args = args[0]
-        is_stacked = True
-    numerical_grad = [np.zeros(a.shape) for a in args]
-    num_args = len(args)
-    for i in range(num_args):
-        for j in range(args[i].realize_cached_data().size):
-            args[i].realize_cached_data().flat[j] += eps
-            if is_stacked:
-                f1 = (f(args, **kwargs).numpy() * c).sum()
-            else:
-                f1 = (f(*args, **kwargs).numpy() * c).sum()
-            args[i].realize_cached_data().flat[j] -= 2 * eps
-            if is_stacked:
-                f2 = (f(args, **kwargs).numpy() * c).sum()
-            else:
-                f2 = (f(*args, **kwargs).numpy() * c).sum()
-            args[i].realize_cached_data().flat[j] += eps
-            numerical_grad[i].flat[j] = (f1 - f2) / (2 * eps)
-    backward_grad = out.op.gradient_as_tuple(ndl.Tensor(c, device=args[0].device), out)
-    if isinstance(backward_grad[0], ndl.TensorTuple): # TODO keep this?
-        backward_grad = backward_grad[0].tuple()
-    error = sum(
-        np.linalg.norm(backward_grad[i].numpy() - numerical_grad[i])
-        for i in range(len(args))
-    )
-    assert error < 1e-2
-    return [g.numpy() for g in backward_grad]
 
-
-stack_back_params = [
-    ( (3, 4), 3, 0),
-    ( (3, 4), 3, 1),
-    ( (3, 4), 3, 2),
-    ( (3, 4), 5, 2),
-    ( (3, 4), 1, 2),
-]
-@pytest.mark.parametrize("device", _DEVICES)
-@pytest.mark.parametrize("shape, n, axis", stack_back_params)
-def test_stack_backward(shape, n, axis, device):
-    np.random.seed(0)
-    get_tensor = lambda shape: ndl.Tensor(np.random.randn(*shape)*5, device=device)
-    backward_check(ndl.stack, [get_tensor(shape) for _ in range(n)], axis=axis)
-
-
-stack_params = [
-    {"shape": (10,3),    "n": 4, "axis": 0},
-    {"shape": (4, 5, 6), "n": 5, "axis": 0},
-    {"shape": (4, 5, 6), "n": 3, "axis": 1},
-    {"shape": (4, 5, 6), "n": 2, "axis": 2}
-]
-@pytest.mark.parametrize("device", _DEVICES)
-@pytest.mark.parametrize("params", stack_params)
-def test_stack_forward(params, device):
-    np.random.seed(0)
-    shape, n, axis = params['shape'], params['n'], params['axis']
-    to_stack_ndl = []
-    to_stack_npy = []
-    for i in range(n):
-        _A = np.random.randn(*shape)
-        to_stack_ndl += [ndl.Tensor(_A, device=device)]
-        to_stack_npy += [_A]
-
-    lhs = np.stack(to_stack_npy, axis=axis)
-    rhs = ndl.stack(to_stack_ndl, axis=axis)
-
-
-pad_params = [
-    {"shape": (10, 32, 32, 8), "padding": ( (0, 0), (2, 2), (2, 2), (0, 0) )},
-    {"shape": (10, 32, 32, 8), "padding": ( (0, 0), (0, 0), (0, 0), (0, 0) )},
-]
-@pytest.mark.parametrize("device", [nd.cpu()])
-@pytest.mark.parametrize("params", pad_params)
-def test_pad_forward(params, device):
-    np.random.seed(0)
-    shape, padding = params['shape'], params['padding']
-    _A = np.random.randn(*shape)
-    _B = np.pad(_A, padding)
-    A = nd.NDArray(_A, device=device)
-    B = A.pad(padding)
-
-    assert np.linalg.norm(A.numpy() - _A) < 1e-4
-
-
-flip_forward_params = [
-    {"shape": (10, 5), "axes": (0,)},
-    {"shape": (10, 5), "axes": (1,)},
-    {"shape": (10, 5), "axes": (0,1)},
-    {"shape": (10, 32, 32, 8), "axes": (0,1)},
-    {"shape": (3, 3, 6, 8), "axes": (0,1)},
-    {"shape": (10, 32, 32, 8), "axes": (1,2)},
-    {"shape": (3, 3, 6, 8), "axes": (1,2)},
-    {"shape": (10, 32, 32, 8), "axes": (2,3)},
-    {"shape": (3, 3, 6, 8), "axes": (2,3)},
-    {"shape": (10, 32, 32, 8), "axes": (0,1,2,3)},
-]
-@pytest.mark.parametrize("device", _DEVICES)
-@pytest.mark.parametrize("params", flip_forward_params)
-def test_flip_forward(params, device):
-    np.random.seed(0)
-    shape, axes = params['shape'], params['axes']
-    _A = np.random.randn(*shape)
-    _B = np.flip(_A, axes)
-    A = ndl.Tensor(_A, device=device)
-    B = ndl.flip(A, axes=axes)
-
-    assert np.linalg.norm(A.numpy() - _A) < 1e-4
-
-
-flip_backward_params = [
-    {"shape": (10, 5), "axes": (0,)},
-    {"shape": (10, 5), "axes": (1,)},
-    {"shape": (10, 5), "axes": (0,1)},
-    {"shape": (2, 3, 3, 8), "axes": (0,1)},
-    {"shape": (3, 3, 6, 4), "axes": (0,1)},
-    {"shape": (2, 3, 3, 4), "axes": (1,2)},
-    {"shape": (3, 3, 6, 4), "axes": (1,2)},
-    {"shape": (2, 3, 3, 4), "axes": (2,3)},
-    {"shape": (3, 3, 6, 4), "axes": (2,3)},
-    {"shape": (2, 3, 3, 4), "axes": (0,1,2,3)},
-]
-@pytest.mark.parametrize("device", _DEVICES)
-@pytest.mark.parametrize("params", flip_backward_params)
-def test_flip_backward(params, device):
-    np.random.seed(0)
-    shape, axes = params['shape'], params['axes']
-    backward_check(ndl.flip, ndl.Tensor(np.random.randn(*shape), device=device), axes=axes)
-
-
-# @pytest.mark.parametrize("device", _DEVICES)
-# def test_init_calculate_fans(device):
-#     _A = np.random.randn(3, 3, 16, 8)
-#     A = ndl.Tensor(_A, device=device)
-#     assert ndl.init._calculate_fans(A) == (144, 72)
-
-#     _A = np.random.randn(3, 3, 16, 8)
-#     A = ndl.Tensor(_A, device=device)
-#     assert ndl.init._calculate_fans(A) == (144, 72)
-
-
-#     _A = np.random.randn(16, 8)
-#     A = ndl.Tensor(_A, device=device)
-#     assert ndl.init._calculate_fans(A) == (16, 8)
-
-
-@pytest.mark.parametrize("device", _DEVICES)
-def test_init_kaiming_uniform(device):
-    _A = np.random.randn(3, 3, 16, 8)
-    A = ndl.Tensor(_A, device=device)
-    np.random.seed(0)
-    A = ndl.init.kaiming_uniform(16*9, 8*9, shape=A.shape)
-    assert abs(A.sum().numpy() - -2.5719218) < 1e-4
-
-
-@pytest.mark.parametrize("device", _DEVICES)
-def test_resnet9(device):
-    def num_params(model):
-        return np.sum([np.prod(x.shape) for x in model.parameters()])
-
-    from apps.models import ResNet9
-    np.random.seed(0)
-    model = ResNet9(device=device)
-
-    assert num_params(model) == 431946
-
-    _A = np.random.randn(2, 3, 32, 32)
-    A = ndl.Tensor(_A, device=device)
-    y = model(A)
-
-    assert np.linalg.norm(np.array([[-1.8912625 ,  0.64833605,  1.9400386 ,  1.1435282 ,  1.89777   ,
-         2.9039745 , -0.10433993,  0.35458302, -0.5684191 ,  2.6178317 ],
-       [-0.2905612 , -0.4147861 ,  0.90268034,  0.46530387,  1.3335679 ,
-         1.8534894 , -0.1867125 , -2.4298222 , -0.5344223 ,  4.362149  ]]) - y.numpy()) < 1e-2
-test_resnet9(ndl.cuda())
-
-
-@pytest.mark.parametrize("device", _DEVICES)
-def test_dilate_forward(device):
-    np.random.seed(0)
-    device = ndl.cpu()
-
-    _A = np.random.randint(1, 10, size=(2, 5))
-    A = ndl.Tensor(_A, device=device)
-    assert np.linalg.norm(ndl.dilate(A, dilation=0, axes=(0,)).numpy() - np.array([[6., 1., 4., 4., 8.],
-       [4., 6., 3., 5., 8.]])) < 1e-5 
-
-    _A = np.random.randint(1, 10, size=(2, 5))
-    A = ndl.Tensor(_A, device=device)
-    assert np.linalg.norm(ndl.dilate(A, dilation=1, axes=(0,)).numpy() - np.array([[7., 9., 9., 2., 7.],
-       [0., 0., 0., 0., 0.],
-       [8., 8., 9., 2., 6.],
-       [0., 0., 0., 0., 0.]])) < 1e-5
-
-    _A = np.random.randint(1, 10, size=(2, 5))
-    A = ndl.Tensor(_A, device=device)
-    assert np.linalg.norm(ndl.dilate(A, dilation=1, axes=(1,)).numpy() - np.array([[9., 0., 5., 0., 4., 0., 1., 0., 4., 0.],
-       [6., 0., 1., 0., 3., 0., 4., 0., 9., 0.]])) < 1e-5
-
-    _A = np.random.randint(1, 10, size=(2, 5))
-    A = ndl.Tensor(_A, device=device)
-    assert np.linalg.norm(ndl.dilate(A, dilation=1, axes=(0,1)).numpy() - np.array([[2., 0., 4., 0., 4., 0., 4., 0., 8., 0.],
-       [0., 0., 0., 0., 0., 0., 0., 0., 0., 0.],
-       [1., 0., 2., 0., 1., 0., 5., 0., 8., 0.],
-       [0., 0., 0., 0., 0., 0., 0., 0., 0., 0.]])) < 1e-5
-
-    _A = np.random.randint(1, 10, size=(2, 2))
-    A = ndl.Tensor(_A, device=device)
-    assert np.linalg.norm(ndl.dilate(A, dilation=2, axes=(0,1)).numpy() - np.array([[4., 0., 0., 3., 0., 0.],
-       [0., 0., 0., 0., 0., 0.],
-       [0., 0., 0., 0., 0., 0.],
-       [8., 0., 0., 3., 0., 0.],
-       [0., 0., 0., 0., 0., 0.],
-       [0., 0., 0., 0., 0., 0.]])) < 1e-5
-
-    _A = np.random.randint(1, 10, size=(2, 2, 2, 2))
-    A = ndl.Tensor(_A, device=device)
-    assert np.linalg.norm(ndl.dilate(A, dilation=1, axes=(1,2)).numpy() - np.array([[[[1., 1.],
-         [0., 0.],
-         [5., 6.],
-         [0., 0.]],
-
-        [[0., 0.],
-         [0., 0.],
-         [0., 0.],
-         [0., 0.]],
-
-        [[6., 7.],
-         [0., 0.],
-         [9., 5.],
-         [0., 0.]],
-
-        [[0., 0.],
-         [0., 0.],
-         [0., 0.],
-         [0., 0.]]],
-
-
-       [[[2., 5.],
-         [0., 0.],
-         [9., 2.],
-         [0., 0.]],
-
-        [[0., 0.],
-         [0., 0.],
-         [0., 0.],
-         [0., 0.]],
-
-        [[2., 8.],
-         [0., 0.],
-         [4., 7.],
-         [0., 0.]],
-
-        [[0., 0.],
-         [0., 0.],
-         [0., 0.],
-         [0., 0.]]]])) < 1e-5
-
-
-dilate_backward_params = [
-    {"shape": (2, 5),          "d": 1, "axes": (0,)},
-    {"shape": (2, 5),          "d": 2, "axes": (1,)},
-    {"shape": (2, 5),          "d": 1, "axes": (0,1)},
-    {"shape": (2, 5),          "d": 0, "axes": (0,1)},
-    {"shape": (2, 3, 3, 4),     "d": 2, "axes": (0,1)},
-    {"shape": (3, 3, 6, 4),     "d": 3, "axes": (0,1)},
-    {"shape": (2, 3, 3, 4),     "d": 0, "axes": (1,2)},
-    {"shape": (2, 3, 3, 4),     "d": 1, "axes": (1,2)},
-    {"shape": (3, 3, 6, 4),     "d": 1, "axes": (1,2)},
-    {"shape": (2, 3, 3, 4),     "d": 1, "axes": (2,3)},
-    {"shape": (3, 3, 6, 4),     "d": 1, "axes": (2,3)},
-    {"shape": (2, 3, 3, 4),     "d": 1, "axes": (0,1,2,3)},
-]
-@pytest.mark.parametrize("device", _DEVICES)
-@pytest.mark.parametrize("params", dilate_backward_params)
-def test_dilate_backward(params, device):
-    np.random.seed(0)
-    shape, d, axes = params['shape'], params['d'], params['axes']
-    backward_check(ndl.dilate, ndl.Tensor(np.random.randn(*shape), device=device), dilation=d, axes=axes)
-
-
-def test_stack_vs_pytorch():
-    np.random.seed(0)
-    import torch
-    A = np.random.randn(5, 5)
-    B = np.random.randn(5, 5)
-    C = np.random.randn(5, 5)
-    D = np.random.randn(15, 5)
-
-    Andl = ndl.Tensor(A, requires_grad=True)
-    Bndl = ndl.Tensor(B, requires_grad=True)
-    Cndl = ndl.Tensor(C, requires_grad=True)
-    Dndl = ndl.Tensor(D, requires_grad=True)
-
-    Atch = torch.tensor(A, requires_grad=True)
-    Btch = torch.tensor(B, requires_grad=True)
-    Ctch = torch.tensor(C, requires_grad=True)
-    Dtch = torch.tensor(D, requires_grad=True)
-
-    Xndl = ndl.stack([Andl, Cndl @ Bndl, Cndl], axis=1)
-    Xtch = torch.stack([Atch, Ctch @ Btch, Ctch], dim=1)
-
-    assert Xndl.shape == Xtch.shape
-    assert np.linalg.norm(Xndl.numpy() - Xtch.detach().numpy()) < 1e-3
-
-    Yndl = (Dndl @ Xndl.reshape((5, 15)) @ Dndl).sum()
-    Ytch = (Dtch @ Xtch.reshape(5, 15) @ Dtch).sum()
-
-    assert np.linalg.norm(Yndl.numpy() - Ytch.detach().numpy()) < 1e-3
-
-    Yndl.backward()
-    Ytch.backward()
-
-    assert np.linalg.norm(Andl.grad.cached_data.numpy() - Atch.grad.detach().numpy()) < 1e-3
-    assert np.linalg.norm(Bndl.grad.cached_data.numpy() - Btch.grad.detach().numpy()) < 1e-3
-    assert np.linalg.norm(Cndl.grad.cached_data.numpy() - Ctch.grad.detach().numpy()) < 1e-3
-
-
-
-conv_forward_params = [
-    (4, 8, 16, 3, 1),
-    (32, 8, 16, 3, 2),
-    (32, 8, 8, 3, 2),
-    (32, 16, 8, 3, 1),
-    (32, 16, 8, 3, 2)
-]
-@pytest.mark.parametrize("s,cin,cout,k,stride", conv_forward_params)
-@pytest.mark.parametrize("device", _DEVICES)
-def test_nn_conv_forward(s, cin, cout, k, stride, device):
-    np.random.seed(0)
-    import torch
-    f = ndl.nn.Conv(cin, cout, k, stride=stride, device=device)
-    x = ndl.init.rand(10, cin, s, s, device=device)
-
-    g = torch.nn.Conv2d(cin, cout, k, stride=stride, padding=k//2)
-    g.weight.data = torch.tensor(f.weight.cached_data.numpy().transpose(3, 2, 0, 1))
-    g.bias.data = torch.tensor(f.bias.cached_data.numpy())
-    z = torch.tensor(x.cached_data.numpy())
-
-    assert np.linalg.norm(f(x).cached_data.numpy() - g(z).data.numpy()) < 1e-3
-test_nn_conv_forward(32, 16, 8, 3, 2, ndl.cpu())
-
-conv_back_params = [
-    (4, 1, 1, 3, 1),
-    (14, 8, 16, 3, 1),
-    (14, 8, 16, 3, 2),
-    (14, 8, 8, 3, 1),
-    (14, 8, 8, 3, 2),
-    (14, 16, 8, 3, 1),
-    (14, 16, 8, 3, 2),
-]
-@pytest.mark.parametrize("s,cin,cout,k,stride", conv_back_params)
-@pytest.mark.parametrize("device", _DEVICES)
-def test_nn_conv_backward(s, cin, cout, k, stride, device):
-    np.random.seed(0)
-    import torch
-    f = ndl.nn.Conv(cin, cout, k, stride=stride, device=device)
-    x = ndl.init.rand(1, cin, s, s, device=device, requires_grad=True)
-
-    g = torch.nn.Conv2d(cin, cout, k, stride=stride, padding=k//2)
-    g.weight.data = torch.tensor(f.weight.cached_data.numpy().transpose(3, 2, 0, 1))
-    g.bias.data = torch.tensor(f.bias.cached_data.numpy())
-    z = torch.tensor(x.cached_data.numpy(), requires_grad=True)
-    z.requires_grad = True
-
-    res1 = f(x)
-    y1 = res1.sum()
-
-    y2 = g(z).sum()
-
-    y1.backward()
-    y2.backward()
-
-    assert np.linalg.norm(g.weight.grad.data.numpy() - f.weight.grad.cached_data.numpy().transpose(3, 2, 0, 1)) < 1e-3, "weight gradients match"
-    assert np.linalg.norm(g.bias.grad.data.numpy() - f.bias.grad.cached_data.numpy()) < 1e-3, "bias gradients match"
-    assert np.linalg.norm(z.grad.data.numpy() - x.grad.cached_data.numpy()) < 1e-3, "input gradients match"
-
-
-op_conv_shapes = [
-    ( (3, 14, 14, 8), (3, 3, 8, 16), 1, 0 ),
-    ( (3, 14, 14, 8), (3, 3, 8, 16), 1, 1 ),
-    ( (3, 16, 16, 8), (3, 3, 8, 16), 1, 2 ),
-    ( (3, 16, 16, 8), (3, 3, 8, 14), 1, 0 ),
-    ( (3, 16, 16, 2), (3, 3, 2, 14), 1, 0 ),
-
-    ( (3, 14, 14, 8), (3, 3, 8, 16), 2, 0 ),
-    ( (3, 14, 14, 8), (3, 3, 8, 16), 2, 1 ),
-    ( (3, 16, 16, 8), (3, 3, 8, 16), 2, 2 ),
-    ( (3, 16, 16, 8), (3, 3, 8, 14), 2, 0 ),
-    ( (3, 16, 16, 2), (3, 3, 2, 14), 2, 0 ),
-
-    ( (3, 16, 16, 24), (3, 3, 24, 14), 1, 0 ),
-    ( (3, 14, 14, 8), (5, 5, 8, 16),   1, 0 ),
-    ( (3, 17, 17, 8), (5, 5, 8, 16),   1, 0 ),
-    ( (3, 17, 17, 1), (5, 5, 1, 16) ,  1, 0),
-    ( (3, 17, 17, 16), (5, 5, 16, 1),  1, 0 ),
-    ( (3, 17, 17, 16), (1, 1, 16, 1),  1, 0 ),
-    ( (1, 14, 14, 2), (3, 3, 2, 2),    1, 0 ),
-]
-@pytest.mark.parametrize("Z_shape, W_shape, stride, padding", op_conv_shapes)
-@pytest.mark.parametrize("device", _DEVICES)
-@pytest.mark.parametrize("backward", [True, False], ids=["backward", "forward"])
-def test_op_conv(Z_shape, W_shape, stride, padding, backward, device):
-    np.random.seed(0)
-    import torch
-    _Z = np.random.randn(*Z_shape)*5
-    _Z = _Z.astype(np.float32)
-    _W = np.random.randn(*W_shape)*5
-    _W = _W.astype(np.float32)
-    Z = ndl.Tensor(_Z, device=device)
-    W = ndl.Tensor(_W, device=device)
-    y = ndl.conv(Z, W, padding=padding, stride=stride)
-    y2 = y.sum()
-    if backward:
-        y2.backward()
-    
-    Ztch = torch.Tensor(_Z).float()
-    Ztch.requires_grad=True
-    Wtch = torch.Tensor(_W).float()
-    Wtch.requires_grad=True
-    out = torch.nn.functional.conv2d(Ztch.permute(0, 3, 1, 2), Wtch.permute(3, 2, 0, 1), padding=padding, stride=stride)
-    out = out.permute((0, 2, 3, 1))
-    out2 = out.sum()
-    if backward:
-        out2.backward()
-    if backward:
-        err1 = np.linalg.norm(Ztch.grad.numpy() - Z.grad.numpy())
-        err2 = np.linalg.norm(Wtch.grad.numpy() - W.grad.numpy())
-    err3 = np.linalg.norm(out2.detach().numpy() - y2.numpy())
-    if backward:
-        assert err1 < 1e-2, "input grads match"
-        assert err2 < 1e-2, "weight grads match"
-    assert err3 < 1e-1, "outputs match %s, %s" % (y2, out2)
-
-def one_iter_of_cifar10_training(dataloader, model, niter=1, loss_fn=ndl.nn.SoftmaxLoss(), opt=None, device=None):
-    np.random.seed(4)
-    model.train()
-    correct, total_loss = 0, 0
-    i = 1
-    for batch in dataloader:
-        opt.reset_grad()
-        X, y = batch
-        X,y = ndl.Tensor(X, device=device), ndl.Tensor(y, device=device)
-        out = model(X)
-        correct += np.sum(np.argmax(out.numpy(), axis=1) == y.numpy())
-        loss = loss_fn(out, y)
-        total_loss += loss.data.numpy() * y.shape[0]
-        loss.backward()
-        opt.step()
-        if i >= niter:
-            break
-        i += 1
-    return correct/(y.shape[0]*niter), total_loss/(y.shape[0]*niter)
-@pytest.mark.parametrize("device", _DEVICES)
-def test_train_cifar10(device):
-    np.random.seed(0)
-    dataset = ndl.data.CIFAR10Dataset("./data/cifar-10-batches-py", train=True)
-    dataloader = ndl.data.DataLoader(\
-             dataset=dataset,
-             batch_size=128,
-             shuffle=False
-             # collate_fn=ndl.data.collate_ndarray,
-             # drop_last=False,
-             # device=device,
-             # dtype="float32"
-             )
-    from apps.models import ResNet9
-    np.random.seed(0)
-    model = ResNet9(device=device, dtype="float32")
-    out = one_iter_of_cifar10_training(dataloader, model, opt=ndl.optim.Adam(model.parameters(), lr=0.001, weight_decay=0.001), device=device)
-    assert np.linalg.norm(np.array(list(out), dtype=object) - np.array([0.09375, 3.5892258])) < 1e-2
-test_train_cifar10(ndl.cpu())
-
-
-
-
-######################    |    ######################
-###################### MUGRADE ######################
-######################    v    ######################
-
-def Prepare(A):
-    return (A.numpy().flatten()[:64], A.shape)
-
-
-def Rand(*shape, device=ndl.cpu(), entropy=1):
-    np.random.seed(np.prod(shape) * len(shape) * entropy)
-    _A = np.random.randint(low=1, high=10, size=shape)
-    return ndl.Tensor(_A, device=device)
-
-
-def RandC(*shape, entropy=1):
-    if ndl.cuda().enabled():
-        return Rand(*shape, device=ndl.cuda(), entropy=2)
+BATCH_SIZES = [1, 15]
+INPUT_SIZES = [1, 11]
+HIDDEN_SIZES = [1, 12]
+BIAS = [True, False]
+INIT_HIDDEN = [True, False]
+NONLINEARITIES = ['tanh', 'relu']
+@pytest.mark.parametrize("batch_size", BATCH_SIZES)
+@pytest.mark.parametrize("input_size", INPUT_SIZES)
+@pytest.mark.parametrize("hidden_size", HIDDEN_SIZES)
+@pytest.mark.parametrize("bias", BIAS)
+@pytest.mark.parametrize("init_hidden", INIT_HIDDEN)
+@pytest.mark.parametrize("nonlinearity", NONLINEARITIES)
+@pytest.mark.parametrize("device", _DEVICES, ids=["cpu", "cuda"])
+def test_rnn_cell(batch_size, input_size, hidden_size, bias, init_hidden, nonlinearity, device):
+    x = np.random.randn(batch_size, input_size).astype(np.float32)
+    h0 = np.random.randn(batch_size, hidden_size).astype(np.float32)
+
+    model_ = torch.nn.RNNCell(input_size, hidden_size, nonlinearity=nonlinearity, bias=bias)
+    if init_hidden:
+        h_ = model_(torch.tensor(x), torch.tensor(h0))
     else:
-        raise NotImplementedError("You need a GPU to run these tests.")
+        h_ = model_(torch.tensor(x), None)
 
-
-def MugradeSubmit(things):
-    mugrade.submit(Prepare(things))
-    # print(Prepare(things))
-
-
-def submit_conv_forward():
-    def DoConvOp(batches, cin, cout, n, k=3, stride=1, padding=0, device=ndl.cpu()):
-        X = Rand(batches, n, n, cin, device=device)
-        W = Rand(k, k, cin, cout, device=device)
-        y = ndl.conv(X, W, stride=stride, padding=padding)
-        return y
-
-    def DoConvLayer(batches, cin, cout, n, k=3, stride=1, bias=True, device=ndl.cpu()):
-        X = Rand(batches, cin, n, n, device=device)
-        f = ndl.nn.Conv(cin, cout, k, stride=stride, bias=bias, device=device)
-        return f(X)
-
-    MugradeSubmit(DoConvOp(2, 1, 2, 4, k=1, stride=1, padding=0))
-    MugradeSubmit(DoConvOp(2, 1, 2, 4, k=1, stride=1, padding=2))
-    MugradeSubmit(DoConvOp(2, 3, 1, 6, k=1, stride=2, padding=2))
-
-
-    MugradeSubmit(DoConvOp(2, 1, 2, 4, k=3, stride=1, padding=0))
-    MugradeSubmit(DoConvOp(3, 1, 2, 4, k=3, stride=1, padding=2))
-    MugradeSubmit(DoConvOp(1, 1, 3, 6, k=5, stride=2, padding=2))
-
-    MugradeSubmit(DoConvLayer(3, 2, 4, 6, k=3, stride=1, bias=True))
-    MugradeSubmit(DoConvLayer(3, 4, 2, 6, k=3, stride=1, bias=True))
-    MugradeSubmit(DoConvLayer(1, 1, 1, 12, k=3, stride=2, bias=True))
-    MugradeSubmit(DoConvLayer(1, 1, 1, 12, k=1, stride=1, bias=False))
-    MugradeSubmit(DoConvLayer(1, 2, 1, 12, k=7, stride=1, bias=False))
-    MugradeSubmit(DoConvLayer(1, 1, 3, 12, k=7, stride=4, bias=False))
-
-
-    if ndl.cuda().enabled():
-        MugradeSubmit(DoConvLayer(3, 2, 4, 6, k=3, stride=1, bias=False, device=ndl.cuda()))
-        MugradeSubmit(DoConvLayer(3, 4, 2, 6, k=3, stride=1, bias=False, device=ndl.cuda()))
+    model = nn.RNNCell(input_size, hidden_size, device=device, bias=bias, nonlinearity=nonlinearity)
+    model.W_ih = ndl.Tensor(model_.weight_ih.detach().numpy().transpose(), device=device)
+    model.W_hh = ndl.Tensor(model_.weight_hh.detach().numpy().transpose(), device=device)
+    if bias:
+        model.bias_ih = ndl.Tensor(model_.bias_ih.detach().numpy(), device=device)
+        model.bias_hh = ndl.Tensor(model_.bias_hh.detach().numpy(), device=device)
+    if init_hidden:
+        h = model(ndl.Tensor(x, device=device), ndl.Tensor(h0, device=device))
     else:
-        print('You need a GPU to run these tests!')
+        h = model(ndl.Tensor(x, device=device), None)
+    assert h.device == device
+    np.testing.assert_allclose(h_.detach().numpy(), h.numpy(), atol=1e-5, rtol=1e-5)
+    h.sum().backward()
+    h_.sum().backward()
+    np.testing.assert_allclose(model_.weight_ih.grad.detach().numpy().transpose(), model.W_ih.grad.numpy(), atol=1e-5, rtol=1e-5)
+test_rnn_cell(1, 11, 12, True, True, "tanh", ndl.cpu())
 
+@pytest.mark.parametrize("batch_size", BATCH_SIZES)
+@pytest.mark.parametrize("input_size", INPUT_SIZES)
+@pytest.mark.parametrize("hidden_size", HIDDEN_SIZES)
+@pytest.mark.parametrize("bias", BIAS)
+@pytest.mark.parametrize("init_hidden", INIT_HIDDEN)
+@pytest.mark.parametrize("device", _DEVICES, ids=["cpu", "cuda"])
+def test_lstm_cell(batch_size, input_size, hidden_size, bias, init_hidden, device):
+    x = np.random.randn(batch_size, input_size).astype(np.float32)
+    h0 = np.random.randn(batch_size, hidden_size).astype(np.float32)
+    c0 = np.random.randn(batch_size, hidden_size).astype(np.float32)
 
-def submit_conv_backward():
-
-    def DoConvOpBackward(batches, cin, cout, n, k=3, stride=1, padding=0, device=ndl.cpu(), wrtX=True):
-        X = Rand(batches, n, n, cin, device=device)
-        X.requires_grad = True
-        W = Rand(k, k, cin, cout, device=device)
-        W.requires_grad = True
-        y = ndl.conv(X, W, stride=stride, padding=padding).sum()
-        y.backward()
-        if wrtX:
-            return W.grad
-        else:
-            return X.grad
-
-    def DoConvLayerBackward(batches, cin, cout, n, k=3, stride=1, bias=True, device=ndl.cpu(), wrtX=True):
-        X = Rand(batches, cin, n, n, device=device)
-        X.requires_grad = True
-        f = ndl.nn.Conv(cin, cout, k, stride=stride, bias=bias, device=device)
-        y = f(X).sum()
-        y.backward()
-        if wrtX:
-            return f.weight.grad
-        else:
-            return X.grad
-
-    MugradeSubmit(DoConvOpBackward(2, 1, 2, 4, k=1, stride=1, padding=0, wrtX=True))
-    MugradeSubmit(DoConvOpBackward(2, 3, 1, 6, k=1, stride=2, padding=0, wrtX=True))
-    MugradeSubmit(DoConvOpBackward(2, 1, 2, 10, k=3, stride=1, padding=1, wrtX=True))
-    MugradeSubmit(DoConvOpBackward(2, 3, 1, 8, k=3, stride=2, padding=2, wrtX=True))
-    MugradeSubmit(DoConvOpBackward(2, 1, 3, 8, k=5, stride=1, padding=2, wrtX=True))
-
-    MugradeSubmit(DoConvOpBackward(2, 1, 2, 4, k=1, stride=1, padding=0, wrtX=False))
-    MugradeSubmit(DoConvOpBackward(2, 3, 1, 6, k=1, stride=2, padding=0, wrtX=False))
-    MugradeSubmit(DoConvOpBackward(2, 1, 2, 6, k=3, stride=1, padding=1, wrtX=False))
-    MugradeSubmit(DoConvOpBackward(2, 3, 1, 6, k=3, stride=2, padding=2, wrtX=False))
-    MugradeSubmit(DoConvOpBackward(2, 1, 3, 8, k=5, stride=1, padding=2, wrtX=False))
-
-    MugradeSubmit(DoConvLayerBackward(3, 2, 4, 6, k=3, stride=1, bias=True, wrtX=True))
-    MugradeSubmit(DoConvLayerBackward(1, 2, 1, 12, k=7, stride=1, bias=False, wrtX=True))
-    MugradeSubmit(DoConvLayerBackward(1, 1, 3, 12, k=7, stride=4, bias=False, wrtX=True))
-    MugradeSubmit(DoConvLayerBackward(3, 2, 4, 6, k=3, stride=1, bias=True, wrtX=False))
-    MugradeSubmit(DoConvLayerBackward(1, 2, 1, 12, k=7, stride=1, bias=False, wrtX=False))
-    MugradeSubmit(DoConvLayerBackward(1, 1, 3, 12, k=7, stride=4, bias=False, wrtX=False))
-
-    if ndl.cuda().enabled():
-        MugradeSubmit(DoConvLayerBackward(3, 2, 4, 6, k=3, stride=1, bias=False, wrtX=True, device=ndl.cuda()))
-        MugradeSubmit(DoConvLayerBackward(3, 4, 2, 6, k=3, stride=1, bias=False, wrtX=False, device=ndl.cuda()))
+    model_ = torch.nn.LSTMCell(input_size, hidden_size, bias=bias)
+    if init_hidden:
+        h_, c_ = model_(torch.tensor(x), (torch.tensor(h0), torch.tensor(c0)))
     else:
-        print('You need a GPU to run these tests!')
+        h_, c_ = model_(torch.tensor(x), None)
+
+    model = nn.LSTMCell(input_size, hidden_size, device=device, bias=bias)
+
+    model.W_ih = ndl.Tensor(model_.weight_ih.detach().numpy().transpose(), device=device)
+    model.W_hh = ndl.Tensor(model_.weight_hh.detach().numpy().transpose(), device=device)
+    if bias:
+        model.bias_ih = ndl.Tensor(model_.bias_ih.detach().numpy(), device=device)
+        model.bias_hh = ndl.Tensor(model_.bias_hh.detach().numpy(), device=device)
+
+    if init_hidden:
+        h, c = model(ndl.Tensor(x, device=device), (ndl.Tensor(h0, device=device), ndl.Tensor(c0, device=device)))
+    else:
+        h, c = model(ndl.Tensor(x, device=device), None)
+    np.testing.assert_allclose(h_.detach().numpy(), h.numpy(), atol=1e-5, rtol=1e-5)
+    np.testing.assert_allclose(c_.detach().numpy(), c.numpy(), atol=1e-5, rtol=1e-5)
+
+    h.sum().backward()
+    h_.sum().backward()
+    np.testing.assert_allclose(model_.weight_ih.grad.detach().numpy().transpose(), model.W_ih.grad.numpy(), atol=1e-5, rtol=1e-5)
 
 
-def submit_new_ops():
-    # pad
-    np.random.seed(1337)
-    _A = np.random.randint(low=1, high=10, size=(2, 2, 2, 2))
-    A  = nd.NDArray(_A, device=nd.cpu())
-    MugradeSubmit(A.pad(( (0, 0), (1, 1), (2, 2), (0, 0))))
+SEQ_LENGTHS = [1, 13]
+NUM_LAYERS = [1, 2]
+@pytest.mark.parametrize("seq_length", SEQ_LENGTHS)
+@pytest.mark.parametrize("num_layers", NUM_LAYERS)
+@pytest.mark.parametrize("batch_size", BATCH_SIZES)
+@pytest.mark.parametrize("input_size", INPUT_SIZES)
+@pytest.mark.parametrize("hidden_size", HIDDEN_SIZES)
+@pytest.mark.parametrize("bias", BIAS)
+@pytest.mark.parametrize("init_hidden", INIT_HIDDEN)
+@pytest.mark.parametrize("nonlinearity", NONLINEARITIES)
+@pytest.mark.parametrize("device", _DEVICES, ids=["cpu", "cuda"])
+def test_rnn(seq_length, num_layers, batch_size, input_size, hidden_size, bias, init_hidden, nonlinearity, device):
+    x = np.random.randn(seq_length, batch_size, input_size).astype(np.float32)
+    h0 = np.random.randn(num_layers, batch_size, hidden_size).astype(np.float32)
 
-    def DoFlip(shape, axes, backward=False, device=ndl.cpu()):
-        X = Rand(*shape, device=device)
-        X.requires_grad = True
-        Y = ndl.flip(X, axes=axes)
-        if backward:
-            V = Rand(*shape, device=device, entropy=2)
-            Z = (V*Y).sum()
-            Z.backward()
-            return X.grad
-        else:
-            return Y
+    model_ = torch.nn.RNN(input_size, hidden_size, num_layers=num_layers, bias=bias, nonlinearity=nonlinearity)
+    if init_hidden:
+        output_, h_ = model_(torch.tensor(x), torch.tensor(h0))
+    else:
+        output_, h_ = model_(torch.tensor(x), None)
 
-    def DoDilate(shape, axes, dilation, backward=False, device=ndl.cpu()):
-        X = Rand(*shape, device=device)
-        X.requires_grad = True
-        Y = ndl.dilate(X, dilation=dilation, axes=axes)
-        if backward:
-            V = Rand(*Y.shape, device=device, entropy=2)
-            Z = (V*Y).sum()
-            Z.backward()
-            return X.grad
-        else:
-            return Y
+    model = nn.RNN(input_size, hidden_size, num_layers, bias, device=device, nonlinearity=nonlinearity)
+    for k in range(num_layers):
+        model.rnn_cells[k].W_ih = ndl.Tensor(getattr(model_, f'weight_ih_l{k}').detach().numpy().transpose(), device=device)
+        model.rnn_cells[k].W_hh = ndl.Tensor(getattr(model_, f'weight_hh_l{k}').detach().numpy().transpose(), device=device)
+        if bias:
+            model.rnn_cells[k].bias_ih = ndl.Tensor(getattr(model_, f'bias_ih_l{k}').detach().numpy(), device=device)
+            model.rnn_cells[k].bias_hh = ndl.Tensor(getattr(model_, f'bias_hh_l{k}').detach().numpy(), device=device)
+    if init_hidden:
+        output, h = model(ndl.Tensor(x, device=device), ndl.Tensor(h0, device=device))
+    else:
+        output, h = model(ndl.Tensor(x, device=device), None)
 
-    # flip
-    MugradeSubmit(DoFlip((2, 2, 3, 1), (1,2)))
-    MugradeSubmit(DoFlip((2, 1, 3, 2), (0,1,2,3)))
-    MugradeSubmit(DoFlip((8, 4), (1,)))
-    MugradeSubmit(DoFlip((4, 8), (0,)))
-    MugradeSubmit(DoFlip((2, 2, 3, 1), (2,3), backward=True))
-    MugradeSubmit(DoFlip((2, 1, 3, 2), (1,2,3), backward=True))
+    np.testing.assert_allclose(h_.detach().numpy(), h.numpy(), atol=1e-5, rtol=1e-5)
+    np.testing.assert_allclose(output_.detach().numpy(), output.numpy(), atol=1e-5, rtol=1e-5)
 
-    # dilate
-    MugradeSubmit(DoDilate((2, 2, 3, 1), (1,2), 1))
-    MugradeSubmit(DoDilate((2, 2), (2,), 1))
-    MugradeSubmit(DoDilate((2, 2, 3, 1), (1,2), 1, backward=True))
-    MugradeSubmit(DoDilate((2, 2), (2,), 1, backward=True))
+    output.sum().backward()
+    output_.sum().backward()
+    np.testing.assert_allclose(model.rnn_cells[0].W_ih.grad.detach().numpy(), model_.weight_ih_l0.grad.numpy().transpose(), atol=1e-5, rtol=1e-5)
 
 
+@pytest.mark.parametrize("seq_length", SEQ_LENGTHS)
+@pytest.mark.parametrize("num_layers", NUM_LAYERS)
+@pytest.mark.parametrize("batch_size", BATCH_SIZES)
+@pytest.mark.parametrize("input_size", INPUT_SIZES)
+@pytest.mark.parametrize("hidden_size", HIDDEN_SIZES)
+@pytest.mark.parametrize("bias", BIAS)
+@pytest.mark.parametrize("init_hidden", INIT_HIDDEN)
+@pytest.mark.parametrize("device", _DEVICES, ids=["cpu", "cuda"])
+def test_lstm(seq_length, num_layers, batch_size, input_size, hidden_size, bias, init_hidden, device):
+    x = np.random.randn(seq_length, batch_size, input_size).astype(np.float32)
+    h0 = np.random.randn(num_layers, batch_size, hidden_size).astype(np.float32)
+    c0 = np.random.randn(num_layers, batch_size, hidden_size).astype(np.float32)
 
-def submit_resnet9():
-    def num_params(model):
-        return np.sum([np.prod(x.shape) for x in model.parameters()])
+    model_ = torch.nn.LSTM(input_size, hidden_size, bias=bias, num_layers=num_layers)
+    if init_hidden:
+        output_, (h_, c_) = model_(torch.tensor(x), (torch.tensor(h0), torch.tensor(c0)))
+    else:
+        output_, (h_, c_) = model_(torch.tensor(x), None)
 
-    device = ndl.cpu()
-    import sys
-    sys.path.append('.')
-    from apps.models import ResNet9
-    np.random.seed(1)
-    model = ResNet9(device=device)
+    model = nn.LSTM(input_size, hidden_size, num_layers, bias, device=device)
+    for k in range(num_layers):
+        model.lstm_cells[k].W_ih = ndl.Tensor(getattr(model_, f'weight_ih_l{k}').detach().numpy().transpose(), device=device)
+        model.lstm_cells[k].W_hh = ndl.Tensor(getattr(model_, f'weight_hh_l{k}').detach().numpy().transpose(), device=device)
+        if bias:
+            model.lstm_cells[k].bias_ih = ndl.Tensor(getattr(model_, f'bias_ih_l{k}').detach().numpy(), device=device)
+            model.lstm_cells[k].bias_hh = ndl.Tensor(getattr(model_, f'bias_hh_l{k}').detach().numpy(), device=device)
+    if init_hidden:
+        output, (h, c) = model(ndl.Tensor(x, device=device), (ndl.Tensor(h0, device=device), ndl.Tensor(c0, device=device)))
+    else:
+        output, (h, c) = model(ndl.Tensor(x, device=device), None)
 
-    MugradeSubmit(ndl.Tensor(num_params(model)))
+    np.testing.assert_allclose(h_.detach().numpy(), h.numpy(), atol=1e-5, rtol=1e-5)
+    np.testing.assert_allclose(c_.detach().numpy(), c.numpy(), atol=1e-5, rtol=1e-5)
+    np.testing.assert_allclose(output_.detach().numpy(), output.numpy(), atol=1e-5, rtol=1e-5)
 
-    np.random.seed(1)
-    dataset = ndl.data.CIFAR10Dataset("./data/cifar-10-batches-py", train=True)
-    dataloader = ndl.data.DataLoader(\
-             dataset=dataset,
-             batch_size=128,
-             shuffle=True
-             )
-    np.random.seed(1)
-    model = ResNet9(device=device, dtype="float32")
-    out = one_iter_of_cifar10_training(dataloader, model, niter=2, opt=ndl.optim.Adam(model.parameters(), lr=0.01, weight_decay=0.0001), device=device)
-    MugradeSubmit(ndl.Tensor(list(out)))
+    output.sum().backward()
+    output_.sum().backward()
+    np.testing.assert_allclose(model.lstm_cells[0].W_ih.grad.detach().numpy(), model_.weight_ih_l0.grad.numpy().transpose(), atol=1e-5, rtol=1e-5)
+
+
+OUTPUT_SIZES = [1, 1000]
+EMBEDDING_SIZES = [1, 34]
+SEQ_MODEL = ['rnn', 'lstm']
+@pytest.mark.parametrize("seq_length", SEQ_LENGTHS)
+@pytest.mark.parametrize("num_layers", NUM_LAYERS)
+@pytest.mark.parametrize("batch_size", BATCH_SIZES)
+@pytest.mark.parametrize("embedding_size", EMBEDDING_SIZES)
+@pytest.mark.parametrize("hidden_size", HIDDEN_SIZES)
+@pytest.mark.parametrize("init_hidden", INIT_HIDDEN)
+@pytest.mark.parametrize("output_size", OUTPUT_SIZES)
+@pytest.mark.parametrize("seq_model", SEQ_MODEL)
+@pytest.mark.parametrize("device", _DEVICES, ids=["cpu", "cuda"])
+def test_language_model_implementation(seq_length, num_layers, batch_size, embedding_size, hidden_size,
+                        init_hidden, output_size, seq_model, device):
+    #TODO add test for just nn.embedding?
+    x = np.random.randint(0, output_size, (seq_length, batch_size)).astype(np.float32)
+    h0 = ndl.Tensor(np.random.randn(num_layers, batch_size, hidden_size).astype(np.float32), device=device)
+    c0 = ndl.Tensor(np.random.randn(num_layers, batch_size, hidden_size).astype(np.float32), device=device)
+
+    model = LanguageModel(embedding_size, output_size, hidden_size, num_layers, seq_model, device=device)
+    if init_hidden:
+        if seq_model == 'lstm':
+            h = (h0, c0)
+        elif seq_model == 'rnn':
+            h = h0
+        output, h_ = model(ndl.Tensor(x, device=device), h)
+    else:
+        output, h_ = model(ndl.Tensor(x, device=device), None)
+
+    if seq_model == 'lstm':
+        assert isinstance(h_, tuple)
+        h0_, c0_ = h_
+        assert c0_.shape == (num_layers, batch_size, hidden_size)
+    elif seq_model == 'rnn':
+        h0_ = h_
+    assert h0_.shape == (num_layers, batch_size, hidden_size)
+    assert output.shape == (batch_size * seq_length, output_size)
+    #TODO actually test values
+    output.backward()
+    for p in model.parameters():
+        assert p.grad is not None
+
+@pytest.mark.parametrize("device", _DEVICES, ids=["cpu", "cuda"])
+def test_language_model_training(device):
+    corpus = ndl.data.Corpus("data/ptb", max_lines=20)
+    seq_len = 10
+    num_examples = 100
+    batch_size = 16
+    seq_model = 'rnn'
+    num_layers = 2
+    hidden_size = 10
+    n_epochs=2
+    train_data = ndl.data.batchify(corpus.train, batch_size=batch_size, device=device, dtype="float32")
+    model = LanguageModel(30, len(corpus.dictionary), hidden_size=hidden_size, num_layers=num_layers, seq_model=seq_model, device=device)
+    train_acc, train_loss = train_ptb(model, train_data, seq_len=seq_len, n_epochs=n_epochs, device=device)
+    test_acc, test_loss = evaluate_ptb(model, train_data, seq_len=seq_len, device=device)
+    if str(device) == "cpu(0)":
+        np.testing.assert_allclose(5.4136161980805575, train_loss, atol=1e-5, rtol=1e-5)
+        np.testing.assert_allclose(5.214852703942193, test_loss, atol=1e-5, rtol=1e-5)
+    elif str(device) == "cuda(0)":
+        np.testing.assert_allclose(5.424638041743526, train_loss, atol=1e-5, rtol=1e-5)
+        np.testing.assert_allclose(5.23579544491238, test_loss, atol=1e-5, rtol=1e-5)
+
+
+### MUGRADE ###
+
+TEST_BATCH_SIZES = [6]
+TEST_INPUT_SIZES = [3]
+TEST_HIDDEN_SIZES = [5]
+TEST_SEQ_LENGTHS = [7]
+TEST_NUM_LAYERS = [3]
+TEST_OUTPUT_SIZES = [16]
+TEST_EMBEDDING_SIZES = [8]
+TEST_SEQ_MODEL = ['rnn', 'lstm']
+
+def mugrade_submit(x):
+    if isinstance(x, np.ndarray):
+        x = x.flatten()[:64]
+        # print(x)
+        mugrade.submit(x)
+    else:
+        # print(x)
+        mugrade.submit(x)
+
+
+def submit_rnn():
+    devices = [ndl.cpu(), ndl.cuda()] if ndl.cuda().enabled() else [ndl.cpu()]
+    # devices = [ndl.cpu(), ndl.cuda()]
+
+    if not ndl.cuda().enabled():
+        print('You need a GPU to run some of these tests.')
+
+    for (device, batch_size, input_size, hidden_size) in itertools.product(
+        devices, TEST_BATCH_SIZES, TEST_INPUT_SIZES, TEST_HIDDEN_SIZES):
+        x = np.random.randn(batch_size, input_size).astype(np.float32)
+        h0 = np.random.randn(batch_size, hidden_size).astype(np.float32)
+        model = nn.RNNCell(input_size, hidden_size, device=device)
+        mugrade_submit(model.W_ih.numpy())
+        h = model(ndl.Tensor(x, device=device), ndl.Tensor(h0, device=device))
+        mugrade_submit(h.numpy())
+        h.sum().backward()
+        mugrade_submit(model.W_hh.grad.numpy())
+
+    for (device, seq_length, num_layers, batch_size, input_size, hidden_size) in itertools.product(
+        devices, TEST_SEQ_LENGTHS, TEST_NUM_LAYERS, TEST_BATCH_SIZES, TEST_INPUT_SIZES, TEST_HIDDEN_SIZES):
+        x = np.random.randn(seq_length, batch_size, input_size).astype(np.float32)
+        h0 = np.random.randn(num_layers, batch_size, hidden_size).astype(np.float32)
+        model = nn.RNN(input_size, hidden_size, num_layers, device=device)
+        output, h = model(ndl.Tensor(x, device=device), ndl.Tensor(h0, device=device))
+        mugrade_submit(h.numpy())
+        mugrade_submit(output.numpy())
+        output.sum().backward()
+        mugrade_submit(model.rnn_cells[-1].W_hh.grad.numpy())
+
+
+def submit_lstm():
+    devices = [ndl.cpu(), ndl.cuda()] if ndl.cuda().enabled() else [ndl.cpu()]
+    #devices = [ndl.cpu(), ndl.cuda()]
+    if not ndl.cuda().enabled():
+        print('You need a GPU to run some of these tests.')
+    for (device, batch_size, input_size, hidden_size) in itertools.product(
+        devices, TEST_BATCH_SIZES, TEST_INPUT_SIZES, TEST_HIDDEN_SIZES):
+        x = np.random.randn(batch_size, input_size).astype(np.float32)
+        h0 = np.random.randn(batch_size, hidden_size).astype(np.float32)
+        c0 = np.random.randn(batch_size, hidden_size).astype(np.float32)
+        model = nn.LSTMCell(input_size, hidden_size, device=device)
+        mugrade_submit(model.W_hh.numpy())
+        (h, c) = model(ndl.Tensor(x, device=device), (ndl.Tensor(h0, device=device), ndl.Tensor(c0, device=device)))
+        mugrade_submit(h.numpy())
+        mugrade_submit(c.numpy())
+        h.sum().backward()
+        mugrade_submit(model.W_hh.grad.numpy())
+
+    for (device, seq_length, num_layers, batch_size, input_size, hidden_size) in itertools.product(
+        devices, TEST_SEQ_LENGTHS, TEST_NUM_LAYERS, TEST_BATCH_SIZES, TEST_INPUT_SIZES, TEST_HIDDEN_SIZES):
+        x = np.random.randn(seq_length, batch_size, input_size).astype(np.float32)
+        h0 = np.random.randn(num_layers, batch_size, hidden_size).astype(np.float32)
+        c0 = np.random.randn(num_layers, batch_size, hidden_size).astype(np.float32)
+        model = nn.LSTM(input_size, hidden_size, num_layers, device=device)
+        output, (h, c) = model(ndl.Tensor(x, device=device), (ndl.Tensor(h0, device=device), ndl.Tensor(c0, device=device)))
+        mugrade_submit(h.numpy())
+        mugrade_submit(c.numpy())
+        mugrade_submit(output.numpy())
+        output.sum().backward()
+        mugrade_submit(model.lstm_cells[-1].W_hh.grad.numpy())
+
+
+def submit_language_model():
+    devices = [ndl.cpu(), ndl.cuda()] if ndl.cuda().enabled() else [ndl.cpu()]
+    # devices = [ndl.cpu(), ndl.cuda()]
+    if not ndl.cuda().enabled():
+        print('You need a GPU to run some of these tests.')
+    for (device, seq_length, num_layers, batch_size, embedding_size, hidden_size, seq_model, output_size) in itertools.product(
+        devices, TEST_SEQ_LENGTHS, TEST_NUM_LAYERS, TEST_BATCH_SIZES, TEST_EMBEDDING_SIZES, TEST_HIDDEN_SIZES, TEST_SEQ_MODEL, TEST_OUTPUT_SIZES):
+        x = np.random.randint(0, output_size, (seq_length, batch_size)).astype(np.float32)
+        h0 = ndl.Tensor(np.random.randn(num_layers, batch_size, hidden_size).astype(np.float32), device=device)
+        c0 = ndl.Tensor(np.random.randn(num_layers, batch_size, hidden_size).astype(np.float32), device=device)
+        model = LanguageModel(embedding_size, output_size, hidden_size, num_layers, seq_model, device=device)
+        if seq_model == 'lstm':
+            h = (h0, c0)
+        elif seq_model == 'rnn':
+            h = h0
+        output, h_ = model(ndl.Tensor(x, device=device), h)
+        if seq_model == 'lstm':
+            h0_, c0_ = h_
+            mugrade_submit(c0_.numpy())
+        elif seq_model == 'rnn':
+            h0_ = h_
+        mugrade_submit(h0_.numpy())
+        mugrade_submit(output.numpy())
+
+    device = ndl.cpu() # TODO CHANGE BACK
+    # device = ndl.cpu()
+    corpus = ndl.data.Corpus("data/ptb", max_lines=20)
+    seq_len = 8
+    num_examples = 88
+    batch_size = 12
+    seq_model = 'lstm'
+    num_layers = 2
+    hidden_size = 12
+    n_epochs=2
+    train_data = ndl.data.batchify(corpus.train, batch_size=batch_size, device=device, dtype="float32")
+    model = LanguageModel(28, len(corpus.dictionary), hidden_size=hidden_size, num_layers=num_layers,
+        seq_model=seq_model, device=device)
+    train_acc, train_loss = train_ptb(model, train_data, seq_len=seq_len, n_epochs=n_epochs, device=device)
+    test_acc, test_loss = evaluate_ptb(model, train_data, seq_len=seq_len, device=device)
+    mugrade_submit(train_loss)
+    mugrade_submit(test_loss)
 
 
 if __name__ == "__main__":
-    submit_conv_forward()
-    submit_conv_backward()
-    submit_new_ops()
-    submit_resnet9()
+    submit_rnn()
+    submit_lstm()
+    submit_language_model()

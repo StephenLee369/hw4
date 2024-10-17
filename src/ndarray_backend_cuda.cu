@@ -24,7 +24,8 @@ struct CudaArray {
   }
   ~CudaArray() { cudaFree(ptr); }
   size_t ptr_as_int() { return (size_t)ptr; }
-  
+  // New data_ptr method that returns the device pointer directly
+  scalar_t* data_ptr() { return ptr; }
   scalar_t* ptr;
   size_t size;
 };
@@ -46,11 +47,11 @@ CudaDims CudaOneDim(size_t size) {
 
 #define MAX_VEC_SIZE 8
 struct CudaVec {
-  uint32_t size;
-  int32_t data[MAX_VEC_SIZE];
+  uint64_t size;
+  int64_t data[MAX_VEC_SIZE];
 };
 
-CudaVec VecToCuda(const std::vector<int32_t>& x) {
+CudaVec VecToCuda(const std::vector<int64_t>& x) {
   CudaVec shape;
   if (x.size() > MAX_VEC_SIZE) throw std::runtime_error("Exceeded CUDA supported max dimesions");
   shape.size = x.size();
@@ -113,8 +114,8 @@ __global__ void CompactKernel(const scalar_t* a, scalar_t* out, size_t size, Cud
   /// END SOLUTION
 }
 
-void Compact(const CudaArray& a, CudaArray* out, std::vector<int32_t> shape,
-             std::vector<int32_t> strides, size_t offset) {
+void Compact(const CudaArray& a, CudaArray* out, std::vector<int64_t> shape,
+             std::vector<int64_t> strides, size_t offset) {
   /**
    * Compact an array in memory.  Unlike the C++ version, in CUDA this will primarily call the 
    * relevant CUDA kernel.  In this case, we illustrate how you should set this up (i.e., we give 
@@ -150,8 +151,8 @@ __global__ void EwiseSetitemKernel(const scalar_t* a, scalar_t* out, size_t size
   }
   
 }
-void EwiseSetitem(const CudaArray& a, CudaArray* out, std::vector<int32_t> shape,
-                  std::vector<int32_t> strides, size_t offset) {
+void EwiseSetitem(const CudaArray& a, CudaArray* out, std::vector<int64_t> shape,
+                  std::vector<int64_t> strides, size_t offset) {
   /**
    * Set items in a (non-compact) array using CUDA.  Yyou will most likely want to implement a
    * EwiseSetitemKernel() function, similar to those above, that will do the actual work.
@@ -185,8 +186,8 @@ __global__ void ScalarSetitemKernel(const scalar_t val, scalar_t* out, size_t si
   
 }
 
-void ScalarSetitem(size_t size, scalar_t val, CudaArray* out, std::vector<int32_t> shape,
-                   std::vector<int32_t> strides, size_t offset) {
+void ScalarSetitem(size_t size, scalar_t val, CudaArray* out, std::vector<int64_t> shape,
+                   std::vector<int64_t> strides, size_t offset) {
   /**
    * Set items is a (non-compact) array
    * 
@@ -454,7 +455,7 @@ void EwiseTanh(const CudaArray& a, CudaArray* out) {
 // Elementwise and scalar operations
 ////////////////////////////////////////////////////////////////////////////////
 
-__global__ void MatmulKernel(const scalar_t* a, const scalar_t* b, scalar_t* out, uint32_t M, uint32_t N, uint32_t P) {
+__global__ void MatmulKernel(const scalar_t* a, const scalar_t* b, scalar_t* out, uint64_t M, uint64_t N, uint64_t P) {
   size_t gid = blockIdx.x * blockDim.x + threadIdx.x;
   if (gid < M){
     for(int j = 0; j < P; j++){
@@ -467,7 +468,7 @@ __global__ void MatmulKernel(const scalar_t* a, const scalar_t* b, scalar_t* out
   }
 }
 
-__global__ void Matmul2Kernel(const scalar_t* a, const scalar_t* b, scalar_t* out, uint32_t M, uint32_t N, uint32_t P) {
+__global__ void Matmul2Kernel(const scalar_t* a, const scalar_t* b, scalar_t* out, uint64_t M, uint64_t N, uint64_t P) {
     // 计算每个线程的全局索引
     int row = blockIdx.y * blockDim.y + threadIdx.y; // 行索引
     int col = blockIdx.x * blockDim.x + threadIdx.x; // 列索引
@@ -495,8 +496,8 @@ __global__ void Matmul2Kernel(const scalar_t* a, const scalar_t* b, scalar_t* ou
 //}
 
 
-void Matmul(const CudaArray& a, const CudaArray& b, CudaArray* out, uint32_t M, uint32_t N,
-            uint32_t P) {
+void Matmul(const CudaArray& a, const CudaArray& b, CudaArray* out, uint64_t M, uint64_t N,
+            uint64_t P) {
   /**
    * Multiply two (compact) matrices into an output (also comapct) matrix.  You will want to look
    * at the lecture and notes on GPU-based linear algebra to see how to do this.  Since ultimately
@@ -526,8 +527,8 @@ void Matmul(const CudaArray& a, const CudaArray& b, CudaArray* out, uint32_t M, 
   /// END SOLUTION
 }
 
-void Matmul2(const CudaArray& a, const CudaArray& b, CudaArray* out, uint32_t M, uint32_t N,
-            uint32_t P) {
+void Matmul2(const CudaArray& a, const CudaArray& b, CudaArray* out, uint64_t M, uint64_t N,
+            uint64_t P) {
   /**
    * Multiply two (compact) matrices into an output (also comapct) matrix.  You will want to look
    * at the lecture and notes on GPU-based linear algebra to see how to do this.  Since ultimately
@@ -635,8 +636,8 @@ PYBIND11_MODULE(ndarray_backend_cuda, m) {
   py::class_<CudaArray>(m, "Array")
       .def(py::init<size_t>(), py::return_value_policy::take_ownership)
       .def_readonly("size", &CudaArray::size)
-      .def("ptr", &CudaArray::ptr_as_int);
-
+      .def("ptr", &CudaArray::ptr_as_int)
+      .def("data_ptr", &CudaArray::data_ptr);  // New method to get device pointer directly
   // return numpy array, copying from CPU
   m.def("to_numpy", [](const CudaArray& a, std::vector<size_t> shape, std::vector<size_t> strides,
                        size_t offset) {

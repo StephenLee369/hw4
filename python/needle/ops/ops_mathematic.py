@@ -474,7 +474,7 @@ class Tanh(TensorOp):
         input, = node.inputs
         tmp = tanh(input)
         pingfang = multiply(tmp, tmp)
-        return multiply(out_grad , (1 - pingfang))
+        return -multiply(out_grad , (1 - pingfang))
         raise NotImplementedError()
         ### END YOUR SOLUTION
 

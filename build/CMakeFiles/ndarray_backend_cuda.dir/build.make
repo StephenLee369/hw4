@@ -53,10 +53,10 @@ RM = /usr/bin/cmake -E rm -f
 EQUALS = =
 
 # The top-level source directory on which CMake was run.
-CMAKE_SOURCE_DIR = /home/ljq/gpu/CMU/hw4
+CMAKE_SOURCE_DIR = /home/ljq/gpu/hw4
 
 # The top-level build directory on which CMake was run.
-CMAKE_BINARY_DIR = /home/ljq/gpu/CMU/hw4/build
+CMAKE_BINARY_DIR = /home/ljq/gpu/hw4/build
 
 # Include any dependencies generated for this target.
 include CMakeFiles/ndarray_backend_cuda.dir/depend.make
@@ -578,16 +578,16 @@ CMakeFiles/ndarray_backend_cuda.dir/src/ndarray_backend_cuda_generated_ndarray_b
 CMakeFiles/ndarray_backend_cuda.dir/src/ndarray_backend_cuda_generated_ndarray_backend_cuda.cu.o: /usr/local/cuda/include/vector_types.h
 CMakeFiles/ndarray_backend_cuda.dir/src/ndarray_backend_cuda_generated_ndarray_backend_cuda.cu.o: CMakeFiles/ndarray_backend_cuda.dir/src/ndarray_backend_cuda_generated_ndarray_backend_cuda.cu.o.cmake
 CMakeFiles/ndarray_backend_cuda.dir/src/ndarray_backend_cuda_generated_ndarray_backend_cuda.cu.o: ../src/ndarray_backend_cuda.cu
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --blue --bold --progress-dir=/home/ljq/gpu/CMU/hw4/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_1) "Building NVCC (Device) object CMakeFiles/ndarray_backend_cuda.dir/src/ndarray_backend_cuda_generated_ndarray_backend_cuda.cu.o"
-	cd /home/ljq/gpu/CMU/hw4/build/CMakeFiles/ndarray_backend_cuda.dir/src && /usr/bin/cmake -E make_directory /home/ljq/gpu/CMU/hw4/build/CMakeFiles/ndarray_backend_cuda.dir/src/.
-	cd /home/ljq/gpu/CMU/hw4/build/CMakeFiles/ndarray_backend_cuda.dir/src && /usr/bin/cmake -D verbose:BOOL=$(VERBOSE) -D build_configuration:STRING= -D generated_file:STRING=/home/ljq/gpu/CMU/hw4/build/CMakeFiles/ndarray_backend_cuda.dir/src/./ndarray_backend_cuda_generated_ndarray_backend_cuda.cu.o -D generated_cubin_file:STRING=/home/ljq/gpu/CMU/hw4/build/CMakeFiles/ndarray_backend_cuda.dir/src/./ndarray_backend_cuda_generated_ndarray_backend_cuda.cu.o.cubin.txt -P /home/ljq/gpu/CMU/hw4/build/CMakeFiles/ndarray_backend_cuda.dir/src/ndarray_backend_cuda_generated_ndarray_backend_cuda.cu.o.cmake
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --blue --bold --progress-dir=/home/ljq/gpu/hw4/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_1) "Building NVCC (Device) object CMakeFiles/ndarray_backend_cuda.dir/src/ndarray_backend_cuda_generated_ndarray_backend_cuda.cu.o"
+	cd /home/ljq/gpu/hw4/build/CMakeFiles/ndarray_backend_cuda.dir/src && /usr/bin/cmake -E make_directory /home/ljq/gpu/hw4/build/CMakeFiles/ndarray_backend_cuda.dir/src/.
+	cd /home/ljq/gpu/hw4/build/CMakeFiles/ndarray_backend_cuda.dir/src && /usr/bin/cmake -D verbose:BOOL=$(VERBOSE) -D build_configuration:STRING= -D generated_file:STRING=/home/ljq/gpu/hw4/build/CMakeFiles/ndarray_backend_cuda.dir/src/./ndarray_backend_cuda_generated_ndarray_backend_cuda.cu.o -D generated_cubin_file:STRING=/home/ljq/gpu/hw4/build/CMakeFiles/ndarray_backend_cuda.dir/src/./ndarray_backend_cuda_generated_ndarray_backend_cuda.cu.o.cubin.txt -P /home/ljq/gpu/hw4/build/CMakeFiles/ndarray_backend_cuda.dir/src/ndarray_backend_cuda_generated_ndarray_backend_cuda.cu.o.cmake
 
 # Object files for target ndarray_backend_cuda
 ndarray_backend_cuda_OBJECTS =
 
 # External object files for target ndarray_backend_cuda
 ndarray_backend_cuda_EXTERNAL_OBJECTS = \
-"/home/ljq/gpu/CMU/hw4/build/CMakeFiles/ndarray_backend_cuda.dir/src/ndarray_backend_cuda_generated_ndarray_backend_cuda.cu.o"
+"/home/ljq/gpu/hw4/build/CMakeFiles/ndarray_backend_cuda.dir/src/ndarray_backend_cuda_generated_ndarray_backend_cuda.cu.o"
 
 ../python/needle/backend_ndarray/ndarray_backend_cuda.cpython-310-x86_64-linux-gnu.so: CMakeFiles/ndarray_backend_cuda.dir/src/ndarray_backend_cuda_generated_ndarray_backend_cuda.cu.o
 ../python/needle/backend_ndarray/ndarray_backend_cuda.cpython-310-x86_64-linux-gnu.so: CMakeFiles/ndarray_backend_cuda.dir/build.make
@@ -595,9 +595,9 @@ ndarray_backend_cuda_EXTERNAL_OBJECTS = \
 ../python/needle/backend_ndarray/ndarray_backend_cuda.cpython-310-x86_64-linux-gnu.so: /usr/lib/x86_64-linux-gnu/librt.a
 ../python/needle/backend_ndarray/ndarray_backend_cuda.cpython-310-x86_64-linux-gnu.so: /usr/local/cuda/lib64/libcudart.so
 ../python/needle/backend_ndarray/ndarray_backend_cuda.cpython-310-x86_64-linux-gnu.so: CMakeFiles/ndarray_backend_cuda.dir/link.txt
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --bold --progress-dir=/home/ljq/gpu/CMU/hw4/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_2) "Linking CXX shared module ../python/needle/backend_ndarray/ndarray_backend_cuda.cpython-310-x86_64-linux-gnu.so"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --bold --progress-dir=/home/ljq/gpu/hw4/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_2) "Linking CXX shared module ../python/needle/backend_ndarray/ndarray_backend_cuda.cpython-310-x86_64-linux-gnu.so"
 	$(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/ndarray_backend_cuda.dir/link.txt --verbose=$(VERBOSE)
-	/usr/bin/strip /home/ljq/gpu/CMU/hw4/python/needle/backend_ndarray/ndarray_backend_cuda.cpython-310-x86_64-linux-gnu.so
+	/usr/bin/strip /home/ljq/gpu/hw4/python/needle/backend_ndarray/ndarray_backend_cuda.cpython-310-x86_64-linux-gnu.so
 
 # Rule to build all files generated by this target.
 CMakeFiles/ndarray_backend_cuda.dir/build: ../python/needle/backend_ndarray/ndarray_backend_cuda.cpython-310-x86_64-linux-gnu.so
@@ -608,6 +608,6 @@ CMakeFiles/ndarray_backend_cuda.dir/clean:
 .PHONY : CMakeFiles/ndarray_backend_cuda.dir/clean
 
 CMakeFiles/ndarray_backend_cuda.dir/depend: CMakeFiles/ndarray_backend_cuda.dir/src/ndarray_backend_cuda_generated_ndarray_backend_cuda.cu.o
-	cd /home/ljq/gpu/CMU/hw4/build && $(CMAKE_COMMAND) -E cmake_depends "Unix Makefiles" /home/ljq/gpu/CMU/hw4 /home/ljq/gpu/CMU/hw4 /home/ljq/gpu/CMU/hw4/build /home/ljq/gpu/CMU/hw4/build /home/ljq/gpu/CMU/hw4/build/CMakeFiles/ndarray_backend_cuda.dir/DependInfo.cmake --color=$(COLOR)
+	cd /home/ljq/gpu/hw4/build && $(CMAKE_COMMAND) -E cmake_depends "Unix Makefiles" /home/ljq/gpu/hw4 /home/ljq/gpu/hw4 /home/ljq/gpu/hw4/build /home/ljq/gpu/hw4/build /home/ljq/gpu/hw4/build/CMakeFiles/ndarray_backend_cuda.dir/DependInfo.cmake --color=$(COLOR)
 .PHONY : CMakeFiles/ndarray_backend_cuda.dir/depend
 

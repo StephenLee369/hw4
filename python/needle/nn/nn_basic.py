@@ -129,6 +129,13 @@ class ReLU(Module):
         raise NotImplementedError()
         ### END YOUR SOLUTION
 
+class Tanh(Module):
+    def forward(self, x: Tensor) -> Tensor:
+        ### BEGIN YOUR SOLUTION
+        y = ops.tanh(x)
+        return y
+        raise NotImplementedError()
+        ### END YOUR SOLUTION
 
 class Sequential(Module):
     def __init__(self, *modules):

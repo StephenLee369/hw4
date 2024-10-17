@@ -35,17 +35,18 @@ class LogSumExp(TensorOp):
         # Calculate max along the axes without keepdims
         
         
-        axes_list = list(self.axes)
-        m = len(axes_list)
-        n = len(Z.shape)
-        for i in range(m):
-            if(axes_list[i] < 0):
-                axes_list[i] += n
-        self.axes = tuple(axes_list)
+        
         z = NDArray.max(Z, axis=self.axes)
         z2 = z
         # Broadcast z to have the same shape as Z
         if self.axes:
+            axes_list = list(self.axes)
+            m = len(axes_list)
+            n = len(Z.shape)
+            for i in range(m):
+                if(axes_list[i] < 0):
+                    axes_list[i] += n
+            self.axes = tuple(axes_list)
             z_shape = list(Z.shape)
             for axis in self.axes:
                 z_shape[axis] = 1
